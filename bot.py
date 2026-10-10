@@ -6,7 +6,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 from telegram.constants import ChatAction
 from telegram.request import HTTPXRequest
 
-# متغیرها
+# تنظیمات اصلی
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CLEANAPIS_API_KEY = os.getenv("CLEANAPIS_API_KEY")
 CLEANAPIS_BASE_URL = "https://cleanapis.com"
@@ -14,35 +14,66 @@ DEFAULT_MODEL = "gpt-5.6-luna"
 
 logging.basicConfig(level=logging.INFO)
 
+# --- توابع اصلی ---
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # تنظیم مدل پیش‌فرض در اولین شروع
-    context.user_data['model'] = DEFAULT_MODEL
-    await update.message.reply_text("سلام DEX جان! من رباتِ تو هستم. با دستور /model می‌تونی بین مدل‌ها سوییچ کنی.")
+    # تنظیمات پیش‌فرض اگر اولین بار باشد
+    if 'model' not in context.user_data:
+        context.user_data['model'] = DEFAULT_MODEL
+        
+    keyboard = [
+        [InlineKeyboardButton("👤 اطلاعات کاربر", callback_data="user_info")],
+        [InlineKeyboardButton("⚙️ تعویض مدل هوش مصنوعی", callback_data="model_menu")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("سلام دوست عزیز، چجوری میتونم کمک کنم؟", reply_markup=reply_markup)
+
+async def show_user_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    text = (f"🆔 اطلاعات حساب شما:\n"
+            f"نام: {user.first_name}\n"
+            f"آیدی: `{user.id}`\n"
+            f"مدل فعال فعلی: `{context.user_data.get('model', DEFAULT_MODEL)}`")
+    await update.callback_query.message.edit_text(text, parse_mode="Markdown")
 
 async def show_model_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     current = context.user_data.get('model', DEFAULT_MODEL)
     keyboard = [
-        [InlineKeyboardButton(f"🤖 GPT-5.6-Luna {'✅' if current == 'gpt-5.6-luna' else ''}", callback_data="gpt-5.6-luna")],
-        [InlineKeyboardButton(f"🧠 Claude-Opus-5.5 {'✅' if current == 'claude-opus-5.5' else ''}", callback_data="claude-opus-5.5")]
+        [InlineKeyboardButton(f"🤖 GPT-5.6-Luna {'✅' if current == 'gpt-5.6-luna' else ''}", callback_data="set_gpt-5.6-luna")],
+        [InlineKeyboardButton(f"🧠 Claude-Opus-5.5 {'✅' if current == 'claude-opus-5.5' else ''}", callback_data="set_claude-opus-5.5")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="back_to_main")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("💎 یکی از مدل‌های هوش مصنوعی رو انتخاب کن:", reply_markup=reply_markup)
+    await update.callback_query.message.edit_text("💎 مدلِ هوش مصنوعی رو انتخاب کن:", reply_markup=reply_markup)
+
+# --- هندلر دکمه‌ها ---
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    selected_model = query.data
-    context.user_data['model'] = selected_model
-    
-    await query.edit_message_text(f"🔥 مدلِ فعال با موفقیت ست شد به: `{selected_model}`\nحالا پیام بفرست تا با این مدل جواب بدم!")
+    if query.data == "user_info":
+        await show_user_info(update, context)
+        
+    elif query.data == "model_menu":
+        await show_model_menu(update, context)
+        
+    elif query.data.startswith("set_"):
+        new_model = query.data.replace("set_", "")
+        context.user_data['model'] = new_model
+        await query.message.edit_text(f"✅ مدل با موفقیت به `{new_model}` تغییر یافت.", parse_mode="Markdown")
+        
+    elif query.data == "back_to_main":
+        await query.message.edit_text("چجوری میتونم کمک کنم؟", reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("👤 اطلاعات کاربر", callback_data="user_info")],
+            [InlineKeyboardButton("⚙️ تعویض مدل هوش مصنوعی", callback_data="model_menu")]
+        ]))
+
+# --- هندلر پیام‌ها ---
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # دریافت مدل انتخاب شده از حافظه کاربر
     model = context.user_data.get('model', DEFAULT_MODEL)
-    
-    wait_msg = await update.message.reply_text(f"⏳ در حال پردازش با ({model})...")
-    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+    wait_msg = await update.message.reply_text(f"⏳ پردازش با ({model})...")
     
     try:
         headers = {"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"}
@@ -57,26 +88,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         url = f"{CLEANAPIS_BASE_URL}/v1/chat/completions"
         async with httpx.AsyncClient(timeout=60.0, trust_env=False) as client:
             r = await client.post(url, headers=headers, json=payload)
-            if r.status_code != 200:
-                raise Exception(f"API Error ({r.status_code}): {r.text}")
+            r.raise_for_status()
             ai_reply = r.json()["choices"][0]["message"]["content"]
         
         await wait_msg.delete()
-        for i in range(0, len(ai_reply), 4000):
-            await update.message.reply_text(ai_reply[i:i+4000])
-            
+        await update.message.reply_text(ai_reply)
     except Exception as e:
-        await wait_msg.edit_text(f"❌ خطای API در مدل `{model}`:\n{str(e)}")
+        await wait_msg.edit_text(f"❌ خطا:\n{str(e)}")
+
+# --- اصلی ---
 
 def main():
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-    
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("model", show_model_menu))
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    
-    print("🤖 ربات آماده شد. دستور /model برای سوییچ مدل...")
     app.run_polling()
 
 if __name__ == "__main__":
