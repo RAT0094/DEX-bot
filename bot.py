@@ -6,7 +6,6 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 from telegram.constants import ChatAction
 from telegram.request import HTTPXRequest
 
-# برای لوکال .env رو میخونه، روی Railway از Variables میخونه
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -15,8 +14,9 @@ except:
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CLEANAPIS_API_KEY = os.getenv("CLEANAPIS_API_KEY")
-# اصلاح آدرس طبق داکیومنت جدید
-CLEANAPIS_BASE_URL = "https://cleanapis.com/v1"
+
+# تغییر به ریشه دامین برای تست
+CLEANAPIS_BASE_URL = "https://cleanapis.com"
 
 AVAILABLE_MODELS = ["fable-5", "fable-5.1", "opus-5.5"]
 DEFAULT_MODEL = "opus-5.5"
@@ -31,7 +31,7 @@ def start_keyboard():
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     current = context.user_data.get("model", DEFAULT_MODEL)
-    text = f"سلام DEX امروز چیکار کنیم؟ 👋\n\nهر سوالی داری بفرست جواب میدم.\nمدل فعلی: {current}"
+    text = f"سلام DEX امروز چیکار کنیم؟ 👋\n\nمدل فعلی: {current}"
     await update.message.reply_text(text, reply_markup=start_keyboard())
 
 async def show_models(update: Update, context: ContextTypes.DEFAULT_TYPE, is_callback=False):
@@ -41,9 +41,6 @@ async def show_models(update: Update, context: ContextTypes.DEFAULT_TYPE, is_cal
         await update.callback_query.edit_message_text("👇 یک مدل را انتخاب کن:", reply_markup=markup)
     else:
         await update.message.reply_text("👇 یک مدل را انتخاب کن:", reply_markup=markup)
-
-async def get_models(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await show_models(update, context, is_callback=False)
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -58,50 +55,48 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["model"] = model_id
         await query.edit_message_text(f"✅ مدل شما به {model_id} تغییر کرد.", reply_markup=start_keyboard())
 
-async def current_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    current = context.user_data.get("model", DEFAULT_MODEL)
-    await update.message.reply_text(f"مدل فعلی شما: {current}")
-
 async def call_cleanapis(payload, headers):
-    timeout = httpx.Timeout(120.0, connect=30.0)
-    async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
-        # آدرس اصلاح شده
-        url = f"{CLEANAPIS_BASE_URL}/chat/completions"
+    # مسیر رو اینجا میسازیم تا بتونیم راحت تست کنیم
+    url = f"{CLEANAPIS_BASE_URL}/v1/chat/completions"
+    
+    print(f"DEBUG: Trying URL: {url}") # لاگ برای دیباگ
+    
+    async with httpx.AsyncClient(timeout=60.0, trust_env=False) as client:
         r = await client.post(url, headers=headers, json=payload)
-        print(f"STATUS {r.status_code} - Response: {r.text[:100]}")
+        
+        # اگر خطا داد، متن کاملش رو چاپ میکنیم
+        if r.status_code != 200:
+            print(f"DEBUG: Server returned {r.status_code}: {r.text}")
+            
         r.raise_for_status()
         return r.json()["choices"][0]["message"]["content"]
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     current = context.user_data.get("model", DEFAULT_MODEL)
-    wait_msg = await update.message.reply_text("⏳ لطفاً صبر کنید...")
+    wait_msg = await update.message.reply_text("⏳ در حال اتصال به سرور...")
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
     try:
-        # هدر استاندارد برای OpenAI-Compatible
         headers = {
             "Authorization": f"Bearer {CLEANAPIS_API_KEY}", 
             "Content-Type": "application/json"
         }
         payload = {"model": current, "messages": [{"role": "user", "content": update.message.text}]}
         ai_reply = await call_cleanapis(payload, headers)
-        try:
-            await wait_msg.delete()
-        except:
-            pass
+        
+        try: await wait_msg.delete()
+        except: pass
+        
         for i in range(0, len(ai_reply), 4000):
             await update.message.reply_text(ai_reply[i:i+4000])
     except Exception as e:
-        print(f"FINAL ERROR {type(e).__name__}: {e}")
-        try:
-            await wait_msg.edit_text("❌ خطا: " + str(e))
-        except:
-            await update.message.reply_text("❌ خطا: " + str(e))
+        print(f"FINAL ERROR: {e}")
+        try: await wait_msg.edit_text(f"❌ خطا:\n{str(e)}")
+        except: await update.message.reply_text(f"❌ خطا:\n{str(e)}")
 
 def main():
     if not TELEGRAM_BOT_TOKEN or not CLEANAPIS_API_KEY:
-        raise ValueError("TELEGRAM_BOT_TOKEN یا CLEANAPIS_API_KEY در Railway Variables ست نشده!")
+        raise ValueError("Variables ست نشده!")
 
-    # پاکسازی پراکسی‌های ناخواسته که ممکنه DNS رو کور کنن
     for var in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
         os.environ.pop(var, None)
 
@@ -109,13 +104,11 @@ def main():
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).request(request).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", start))
-    app.add_handler(CommandHandler("models", get_models))
-    app.add_handler(CommandHandler("current", current_model))
+    app.add_handler(CommandHandler("models", show_models))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("ربات با تنظیمات جدید روشن شد...")
+    print("ربات روشن شد...")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
