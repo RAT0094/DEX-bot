@@ -4,8 +4,8 @@ import httpx
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 from telegram.constants import ChatAction
+from telegram.request import HTTPXRequest
 
-# از Railway خونده میشه نه داخل کد
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CLEANAPIS_API_KEY = os.getenv("CLEANAPIS_API_KEY")
 CLEANAPIS_BASE_URL = "https://api.cleanapis.com/v1"
@@ -56,8 +56,10 @@ async def current_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def call_cleanapis(payload, headers):
     timeout = httpx.Timeout(120.0, connect=30.0)
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    # trust_env=False جلوی ارور name or service not known رو میگیره
+    async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
         r = await client.post(f"{CLEANAPIS_BASE_URL}/chat/completions", headers=headers, json=payload)
+        print(f"STATUS {r.status_code}")
         r.raise_for_status()
         return r.json()["choices"][0]["message"]["content"]
 
@@ -69,16 +71,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         headers = {"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"}
         payload = {"model": current, "messages": [{"role": "user", "content": update.message.text}]}
         ai_reply = await call_cleanapis(payload, headers)
-        try: await wait_msg.delete()
-        except: pass
+        try:
+            await wait_msg.delete()
+        except:
+            pass
         for i in range(0, len(ai_reply), 4000):
             await update.message.reply_text(ai_reply[i:i+4000])
     except Exception as e:
-        await wait_msg.edit_text("❌ خطا: " + str(e))
+        print(f"FINAL ERROR {type(e).__name__}: {e}")
+        try:
+            await wait_msg.edit_text("❌ خطا: " + str(e))
+        except:
+            await update.message.reply_text("❌ خطا: " + str(e))
 
 def main():
-    # روی Railway بدون هیچ پروکسی
-    app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    if not TELEGRAM_BOT_TOKEN or not CLEANAPIS_API_KEY:
+        raise ValueError("TELEGRAM_BOT_TOKEN یا CLEANAPIS_API_KEY در Railway Variables ست نشده!")
+
+    # Fix اصلی برای Railway - trust_env=False
+    request = HTTPXRequest(connection_pool_size=8, connect_timeout=30, read_timeout=30, trust_env=False)
+    app = Application.builder().token(TELEGRAM_BOT_TOKEN).request(request).build()
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", start))
     app.add_handler(CommandHandler("models", get_models))
@@ -90,3 +103,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+        
