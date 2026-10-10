@@ -3,8 +3,6 @@ import logging
 import httpx
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
-from telegram.constants import ChatAction
-from telegram.request import HTTPXRequest
 
 # تنظیمات اصلی
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -14,10 +12,9 @@ DEFAULT_MODEL = "gpt-5.6-luna"
 
 logging.basicConfig(level=logging.INFO)
 
-# --- توابع اصلی ---
+# --- توابع رابط کاربری ---
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # تنظیمات پیش‌فرض اگر اولین بار باشد
     if 'model' not in context.user_data:
         context.user_data['model'] = DEFAULT_MODEL
         
@@ -26,7 +23,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("⚙️ تعویض مدل هوش مصنوعی", callback_data="model_menu")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("سلام دوست عزیز، چجوری میتونم کمک کنم؟", reply_markup=reply_markup)
+    await update.message.reply_text("سلام دوست عزیز، چجوری می‌تونم کمک کنم؟\n\n💡 می‌تونی با دستور `/img [توضیحات]` عکس هم بسازی!", reply_markup=reply_markup, parse_mode="Markdown")
 
 async def show_user_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -54,22 +51,46 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if query.data == "user_info":
         await show_user_info(update, context)
-        
     elif query.data == "model_menu":
         await show_model_menu(update, context)
-        
     elif query.data.startswith("set_"):
         new_model = query.data.replace("set_", "")
         context.user_data['model'] = new_model
         await query.message.edit_text(f"✅ مدل با موفقیت به `{new_model}` تغییر یافت.", parse_mode="Markdown")
-        
     elif query.data == "back_to_main":
-        await query.message.edit_text("چجوری میتونم کمک کنم؟", reply_markup=InlineKeyboardMarkup([
+        await query.message.edit_text("چجوری می‌تونم کمک کنم؟", reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("👤 اطلاعات کاربر", callback_data="user_info")],
             [InlineKeyboardButton("⚙️ تعویض مدل هوش مصنوعی", callback_data="model_menu")]
         ]))
 
-# --- هندلر پیام‌ها ---
+# --- هندلر تولید تصویر ---
+
+async def generate_image_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("❌ لطفاً توضیحات عکس رو هم بنویس.\nمثال: `/img a futuristic neon logo`", parse_mode="Markdown")
+        return
+
+    prompt = " ".join(context.args)
+    wait_msg = await update.message.reply_text("🎨 در حال ترسیم تصویر... لطفاً صبر کن.")
+
+    try:
+        # تغییر آدرس به اندپوینت تصویر (اگر CleanApis از استاندارد OpenAI استفاده می‌کند)
+        url = f"{CLEANAPIS_BASE_URL}/v1/images/generations"
+        payload = {"prompt": prompt, "n": 1, "size": "1024x1024"}
+        headers = {"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"}
+        
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            r = await client.post(url, headers=headers, json=payload)
+            r.raise_for_status()
+            image_url = r.json()["data"][0]["url"]
+            
+        await update.message.reply_photo(photo=image_url, caption=f"✨ نتیجه برای: {prompt}")
+        await wait_msg.delete()
+        
+    except Exception as e:
+        await wait_msg.edit_text(f"❌ خطای تولید تصویر:\n`{str(e)}`", parse_mode="Markdown")
+
+# --- هندلر چت ---
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     model = context.user_data.get('model', DEFAULT_MODEL)
@@ -94,13 +115,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await wait_msg.delete()
         await update.message.reply_text(ai_reply)
     except Exception as e:
-        await wait_msg.edit_text(f"❌ خطا:\n{str(e)}")
+        await wait_msg.edit_text(f"❌ خطا:\n`{str(e)}`", parse_mode="Markdown")
 
 # --- اصلی ---
 
 def main():
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("img", generate_image_command)) # دستور جدید
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.run_polling()
