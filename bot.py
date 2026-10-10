@@ -6,6 +6,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 from telegram.constants import ChatAction
 from telegram.request import HTTPXRequest
 
+# برای لوکال .env رو میخونه، روی Railway از Variables میخونه
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -16,6 +17,7 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CLEANAPIS_API_KEY = os.getenv("CLEANAPIS_API_KEY")
 CLEANAPIS_BASE_URL = "https://api.cleanapis.com/v1"
 
+# حتما مطمئن شو این مدل‌ها روی کلین‌پیس وجود دارن!
 AVAILABLE_MODELS = ["fable-5", "fable-5.1", "opus-5.5"]
 DEFAULT_MODEL = "opus-5.5"
 
@@ -63,8 +65,10 @@ async def current_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def call_cleanapis(payload, headers):
     timeout = httpx.Timeout(120.0, connect=30.0)
     async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
-        r = await client.post(f"{CLEANAPIS_BASE_URL}/chat/completions", headers=headers, json=payload)
-        print(f"STATUS {r.status_code}")
+        url = f"{CLEANAPIS_BASE_URL}/chat/completions"
+        print(f"Sending request to {url} with model {payload.get('model')}...")
+        r = await client.post(url, headers=headers, json=payload)
+        print(f"STATUS {r.status_code} - Response: {r.text[:200]}")
         r.raise_for_status()
         return r.json()["choices"][0]["message"]["content"]
 
@@ -73,8 +77,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     wait_msg = await update.message.reply_text("⏳ لطفاً صبر کنید...")
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
     try:
-        headers = {"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"}
-        payload = {"model": current, "messages": [{"role": "user", "content": update.message.text}]}
+        headers = {
+            "Authorization": f"Bearer {CLEANAPIS_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": current,
+            "messages": [{"role": "user", "content": update.message.text}]
+        }
         ai_reply = await call_cleanapis(payload, headers)
         try:
             await wait_msg.delete()
@@ -84,19 +94,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(ai_reply[i:i+4000])
     except Exception as e:
         print(f"FINAL ERROR {type(e).__name__}: {e}")
+        err_text = f"❌ خطا: {str(e)}"
         try:
-            await wait_msg.edit_text("❌ خطا: " + str(e))
+            await wait_msg.edit_text(err_text)
         except:
-            await update.message.reply_text("❌ خطا: " + str(e))
+            await update.message.reply_text(err_text)
 
 def main():
     if not TELEGRAM_BOT_TOKEN or not CLEANAPIS_API_KEY:
-        raise ValueError("TELEGRAM_BOT_TOKEN یا CLEANAPIS_API_KEY در Railway Variables ست نشده!")
+        raise ValueError("TELEGRAM_BOT_TOKEN یا CLEANAPIS_API_KEY در Environment Variables ست نشده!")
 
-    for var in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy"):
+    # فیکس ارور name or service not known
+    for var in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
         os.environ.pop(var, None)
 
-    # درست شد - بدون trust_env
     request = HTTPXRequest(connection_pool_size=8, connect_timeout=30, read_timeout=30)
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).request(request).build()
 
@@ -106,7 +117,8 @@ def main():
     app.add_handler(CommandHandler("current", current_model))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    print("ربات روشن شد...")
+    
+    print("ربات روشن شد و داره پولینگ رو شروع میکنه...")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
