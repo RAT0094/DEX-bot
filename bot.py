@@ -6,7 +6,6 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 from telegram.constants import ChatAction
 from telegram.request import HTTPXRequest
 
-# برای لوکال .env رو میخونه، روی Railway از Variables میخونه
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -94,10 +93,10 @@ def main():
     if not TELEGRAM_BOT_TOKEN or not CLEANAPIS_API_KEY:
         raise ValueError("TELEGRAM_BOT_TOKEN یا CLEANAPIS_API_KEY در Railway Variables ست نشده!")
 
-    # فیکس ارور name or service not known
-    for var in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
+    for var in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy"):
         os.environ.pop(var, None)
 
+    # درست شد - بدون trust_env
     request = HTTPXRequest(connection_pool_size=8, connect_timeout=30, read_timeout=30)
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).request(request).build()
 
