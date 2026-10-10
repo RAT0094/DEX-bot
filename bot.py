@@ -1,5 +1,6 @@
 import os
 import logging
+import socket
 import httpx
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
@@ -17,7 +18,7 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CLEANAPIS_API_KEY = os.getenv("CLEANAPIS_API_KEY")
 CLEANAPIS_BASE_URL = "https://api.cleanapis.com/v1"
 
-# حتما مطمئن شو این مدل‌ها روی کلین‌پیس وجود دارن!
+# مدل‌های پیشنهادی (مطمئن شو روی کلین‌پیس فعال باشن)
 AVAILABLE_MODELS = ["fable-5", "fable-5.1", "opus-5.5"]
 DEFAULT_MODEL = "opus-5.5"
 
@@ -64,13 +65,22 @@ async def current_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def call_cleanapis(payload, headers):
     timeout = httpx.Timeout(120.0, connect=30.0)
-    async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
+    limits = httpx.Limits(max_keepalive_connections=5, max_connections=10)
+    
+    async with httpx.AsyncClient(timeout=timeout, limits=limits, trust_env=False) as client:
         url = f"{CLEANAPIS_BASE_URL}/chat/completions"
         print(f"Sending request to {url} with model {payload.get('model')}...")
-        r = await client.post(url, headers=headers, json=payload)
-        print(f"STATUS {r.status_code} - Response: {r.text[:200]}")
-        r.raise_for_status()
-        return r.json()["choices"][0]["message"]["content"]
+        try:
+            r = await client.post(url, headers=headers, json=payload)
+            print(f"STATUS {r.status_code} - Response: {r.text[:200]}")
+            r.raise_for_status()
+            return r.json()["choices"][0]["message"]["content"]
+        except httpx.ConnectError as e:
+            print(f"❌ Connection/DNS Error in httpx: {e}")
+            raise
+        except httpx.HTTPStatusError as e:
+            print(f"❌ HTTP Error status {e.response.status_code}: {e.response.text}")
+            raise
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     current = context.user_data.get("model", DEFAULT_MODEL)
@@ -104,9 +114,17 @@ def main():
     if not TELEGRAM_BOT_TOKEN or not CLEANAPIS_API_KEY:
         raise ValueError("TELEGRAM_BOT_TOKEN یا CLEANAPIS_API_KEY در Environment Variables ست نشده!")
 
-    # فیکس ارور name or service not known
+    # فیکس ارور name or service not known برای پراکسی‌ها
     for var in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
         os.environ.pop(var, None)
+
+    # تست زنده DNS همین که ربات بالا میاد
+    try:
+        target_host = "api.cleanapis.com"
+        resolved_ip = socket.gethostbyname(target_host)
+        logging.info(f"✅ DNS OK: {target_host} resolved to {resolved_ip}")
+    except Exception as dns_err:
+        logging.error(f"❌ DNS FAILED: Cannot resolve api.cleanapis.com! Error: {dns_err}")
 
     request = HTTPXRequest(connection_pool_size=8, connect_timeout=30, read_timeout=30)
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).request(request).build()
@@ -123,3 +141,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
