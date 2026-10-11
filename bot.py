@@ -11,8 +11,18 @@ CLEANAPIS_BASE_URL = "https://cleanapis.com"
 DEFAULT_MODEL = "gpt-5.6-luna"
 MAIN_TEXT = "سلام دوست عزیز، چطور می‌تونم کمکت کنم؟"
 
-# لیست مدل‌های تو
-MODELS = ["gpt-5.6-luna", "claude-opus-5.5", "gpt-5.5", "gpt-5.5-pro", "claude-fable-5"]
+# لیست مدل‌ها و نگاشت ایموجی‌ها
+# خیلی راحت میتونی اینجا ایموجی هر مدل رو عوض کنی
+MODEL_EMOJIS = {
+    "gpt-5.6-luna": "🌙",
+    "claude-opus-5.5": "🧠",
+    "gpt-5.5": "⚡",
+    "gpt-5.5-pro": "🚀",
+    "claude-fable-5": "📖"
+}
+
+# لیست مدل‌ها برای منو
+MODELS = list(MODEL_EMOJIS.keys())
 
 logging.basicConfig(level=logging.INFO)
 
@@ -32,10 +42,12 @@ def get_services_menu():
     ])
 
 def get_model_menu(current_model):
-    # تولید داینامیک دکمه‌ها
     buttons = []
     for model in MODELS:
-        text = f"{model.upper()} {'✅' if current_model == model else ''}"
+        # دریافت ایموجی از دیکشنری (اگر نبود، پیش‌فرض ربات 🤖)
+        emoji = MODEL_EMOJIS.get(model, "🤖")
+        # نمایش ایموجی در متن دکمه
+        text = f"{emoji} {model.upper()} {'✅' if current_model == model else ''}"
         buttons.append([InlineKeyboardButton(text, callback_data=f"set_{model}")])
     
     buttons.append([InlineKeyboardButton("🔙 بازگشت به خدمات", callback_data="more_services")])
@@ -85,7 +97,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     model = context.user_data.get('model', DEFAULT_MODEL)
     wait_msg = await update.message.reply_text(f"⏳ پردازش با ({model})...")
     
-    # اینجا شخصیتِ ربات رو تعریف کردیم
     system_instruction = """You are a helpful assistant. Always respond in Persian.
 Rules:
 1. If asked 'Who created you?' (or similar variations), answer ONLY: 'DEX'.
