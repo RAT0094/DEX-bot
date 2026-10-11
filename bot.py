@@ -14,7 +14,7 @@ IMAGE_MODEL = "claude-opus-5.5"
 
 CHOOSING, GENERATING_IMAGE = range(2)
 
-# --- پیام‌های اصلی (بازگردانی شده) ---
+# --- پیام‌های اصلی ---
 WELCOME_MESSAGE = "سلام دوست عزیز، چطور می‌تونم کمکت کنم؟\n\n✨ به دنیای DEX خوش آمدید"
 IMAGE_MODE_MESSAGE = f"🎨 حالت ساخت تصویر با مدلِ {IMAGE_MODEL} فعال شد!\nتوصیفِ تصویرت رو بفرست تا برات خلقش کنم."
 
@@ -72,35 +72,34 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = update.message.text
-    status_msg = await update.message.reply_text(f"⏳ دارم با {IMAGE_MODEL} تصویر رو می‌کشم...")
+    status_msg = await update.message.reply_text("⏳ در حال جادو...")
     
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
+            # اینجا مدل را مجبور می‌کنیم فقط لینکِ خالص برگرداند
             r = await client.post(
                 f"{CLEANAPIS_BASE_URL}/v1/chat/completions", 
                 headers={"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"},
                 json={
                     "model": IMAGE_MODEL,
                     "messages": [
-                        {"role": "system", "content": "You are a creative visual engine. Only output a direct image URL (e.g., https://...) without any extra text or markdown formatting if possible. If you must describe, be brief."},
-                        {"role": "user", "content": f"Generate a URL for a visual representation of: {prompt}"}
+                        {"role": "system", "content": "You are an image URL generator. ONLY return the final URL string for the image. Do NOT write any sentences, do NOT use markdown brackets, do NOT add text."},
+                        {"role": "user", "content": f"Generate a URL for: {prompt}. Append width=1024&height=1024&nologo=true to the URL."}
                     ]
                 }
             )
             
             data = r.json()
-            answer = data["choices"][0]["message"]["content"]
+            answer = data["choices"][0]["message"]["content"].strip()
             
-            # استخراج لینک: هم حالت مارک‌داون (![alt](url)) و هم لینک خالص
-            url_match = re.search(r'(?:!\[.*?\]\((https?://[^\s<>"]+)\))|(https?://[^\s<>"]+\.(?:png|jpg|jpeg|gif|webp))', answer)
+            # اصلاحِ رِجکس: شکارِ هر لینکی که با http شروع می‌شود
+            url_match = re.search(r'https?://[^\s<>"\)]+', answer)
             
             if url_match:
-                # اولویت با گروه اول (مارک‌داون) و اگر نبود گروه دوم (لینک خام)
-                image_url = url_match.group(1) if url_match.group(1) else url_match.group(2)
-                await update.message.reply_photo(photo=image_url)
+                image_url = url_match.group(0)
+                await update.message.reply_photo(photo=image_url) # بدون کپشن!
             else:
-                # اگر لینکی پیدا نشد، متن رو نمایش بده
-                await update.message.reply_text(f"🖼 پاسخِ {IMAGE_MODEL}:\n\n{answer}")
+                await update.message.reply_text(f"❌ لینک معتبری دریافت نشد. خروجی مدل: {answer}")
             
             await status_msg.delete()
                 
@@ -118,7 +117,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                     "messages": [{"role": "system", "content": "You are a helpful assistant developed by DEX."}, {"role": "user", "content": text}]})
         
         answer = r.json()["choices"][0]["message"]["content"]
-        # پاکسازی نام رقبا از پاسخ مدل‌ها
         answer = answer.replace("OpenAI", "DEX").replace("Google", "DEX").replace("Anthropic", "DEX")
         await update.message.reply_text(answer, parse_mode="Markdown")
     return CHOOSING
@@ -136,9 +134,9 @@ def main():
     )
     
     app.add_handler(conv_handler)
-    print("DEX Bot (V2 Optimized) is running... 🚀")
+    print("DEX Bot (Pure Image Mode) is running... 🚀")
     app.run_polling()
 
 if __name__ == "__main__":
     main()
-  
+          
