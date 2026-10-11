@@ -2,6 +2,7 @@ import os
 import httpx
 import re
 import io
+import urllib.parse # برای کدگذاری دقیق پرامپت
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (Application, CommandHandler, CallbackQueryHandler, 
                           MessageHandler, ContextTypes, filters, ConversationHandler)
@@ -71,42 +72,27 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("مدل با موفقیت دگرگون شد!", reply_markup=get_main_menu())
         return CHOOSING
 
+# --- هندلر تصویرِ بهینه‌شده ---
 async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = update.message.text
-    status_msg = await update.message.reply_text("⏳ در حال جادو...")
+    status_msg = await update.message.reply_text("⏳ در حال ساخت تصویر دقیق...")
     
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            r = await client.post(
-                f"{CLEANAPIS_BASE_URL}/v1/chat/completions", 
-                headers={"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"},
-                json={
-                    "model": IMAGE_MODEL,
-                    "messages": [
-                        {"role": "system", "content": "You are a professional image engineering assistant. Your ONLY task is to convert the user's prompt into a clean URL for 'https://image.pollinations.ai/prompt/'. URL-encode the prompt (convert spaces to %20). Do not write sentences. Output ONLY the URL followed by '?width=1024&height=1024&nologo=true'. No markdown, no extra text."},
-                        {"role": "user", "content": prompt}
-                    ]
-                }
-            )
-            
-            data = r.json()
-            answer = data["choices"][0]["message"]["content"].strip()
-            url_match = re.search(r'https?://[^\s<>"\)]+', answer)
-            
-            if url_match:
-                image_url = url_match.group(0)
-                async with httpx.AsyncClient(timeout=30.0) as img_client:
-                    img_response = await img_client.get(image_url)
-                    if img_response.status_code == 200:
-                        photo_bytes = io.BytesIO(img_response.content)
-                        photo_bytes.name = "image.png"
-                        await update.message.reply_photo(photo=photo_bytes, caption="عکس ساخته شد")
-                    else:
-                        await update.message.reply_text(f"❌ سرور تصویر پاسخ نداد (کد {img_response.status_code})")
+        # دیگر از LLM برای ساختِ URL استفاده نمی‌کنیم (چون تفسیر می‌کند!)
+        # مستقیماً پرامپتِ کاربر را کدگذاری و تبدیل به URL می‌کنیم
+        encoded_prompt = urllib.parse.quote(prompt)
+        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
+        
+        async with httpx.AsyncClient(timeout=30.0) as img_client:
+            img_response = await img_client.get(image_url)
+            if img_response.status_code == 200:
+                photo_bytes = io.BytesIO(img_response.content)
+                photo_bytes.name = "image.png"
+                await update.message.reply_photo(photo=photo_bytes, caption="عکس ساخته شد")
             else:
-                await update.message.reply_text(f"❌ لینک معتبری دریافت نشد: {answer}")
-            
-            await status_msg.delete()
+                await update.message.reply_text(f"❌ سرور تصویر پاسخ نداد (کد {img_response.status_code})")
+        
+        await status_msg.delete()
                 
     except Exception as e:
         await status_msg.edit_text(f"❌ خطای سیستم: {str(e)}")
@@ -139,7 +125,7 @@ def main():
     )
     
     app.add_handler(conv_handler)
-    print("DEX Bot (Robust Image Delivery Mode) is running... 🚀")
+    print("DEX Bot (Direct Prompt Delivery Mode) is running... 🚀")
     app.run_polling()
 
 if __name__ == "__main__":
