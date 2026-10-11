@@ -32,9 +32,9 @@ def get_services_menu():
         [InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")]
     ])
 
-# --- هندلرها ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if \'model\' not in context.user_data: context.user_data[\'model\'] = DEFAULT_MODEL
+    if "model" not in context.user_data:
+        context.user_data["model"] = DEFAULT_MODEL
     await update.message.reply_text(WELCOME_MESSAGE, reply_markup=get_main_menu())
     return CHOOSING
 
@@ -67,7 +67,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return CHOOSING
         
     elif query.data.startswith("set_"):
-        context.user_data[\'model\'] = query.data.replace("set_", "")
+        context.user_data["model"] = query.data.replace("set_", "")
         await query.edit_message_text("مدل با موفقیت دگرگون شد!", reply_markup=get_main_menu())
         return CHOOSING
 
@@ -92,7 +92,6 @@ async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
             data = r.json()
             answer = data["choices"][0]["message"]["content"]
             
-            # استخراج لینک عکس - هم لینک مستقیم هم لینک داخل مارکداون
             url_pattern = r\'https?://[^\s<>"\)]+\.(?:png|jpg|jpeg|gif|webp)(?:\?[^\s<>"\)]*)?\'
             urls = re.findall(url_pattern, answer, re.IGNORECASE)
 
@@ -102,11 +101,7 @@ async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
 
             if urls:
                 image_url = urls[0].strip().rstrip(\').>\')
-                # ارسال خود تصویر نه لینک
-                await update.message.reply_photo(
-                    photo=image_url, 
-                    caption="تصویر با موفقیت ساخته شد ✅"
-                )
+                await update.message.reply_photo(photo=image_url, caption="تصویر با موفقیت ساخته شد ✅")
             else:
                 await update.message.reply_text(f"🖼 پاسخِ {IMAGE_MODEL}:\n\n{answer}")
             
@@ -125,7 +120,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     async with httpx.AsyncClient(timeout=60.0) as client:
         r = await client.post(f"{CLEANAPIS_BASE_URL}/v1/chat/completions", 
                               headers={"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"},
-                              json={"model": context.user_data.get(\'model\', DEFAULT_MODEL), 
+                              json={"model": context.user_data.get("model", DEFAULT_MODEL), 
                                     "messages": [{"role": "system", "content": "You are a helpful assistant developed by DEX."}, {"role": "user", "content": text}]})
         
         answer = r.json()["choices"][0]["message"]["content"]
