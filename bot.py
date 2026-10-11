@@ -10,19 +10,18 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CLEANAPIS_API_KEY = os.getenv("CLEANAPIS_API_KEY")
 CLEANAPIS_BASE_URL = "https://cleanapis.com"
 DEFAULT_MODEL = "gpt-5.6-luna"
-# مدلِ موردِ نظرِ تو
 IMAGE_MODEL = "claude-opus-5.5" 
 
 # وضعیت‌ها
 CHOOSING, GENERATING_IMAGE = range(2)
 
-# --- پیام‌ها ---
-WELCOME_MESSAGE = "سلام دکستر! سیستمِ DEX کاملاً یکپارچه و آماده‌ست.\n\n✨ به دنیای DEX خوش آمدید"
-IMAGE_MODE_MESSAGE = f"🎨 حالت ساخت تصویر با مدلِ {IMAGE_MODEL} فعال شد!\nتوصیفِ تصویرت رو بفرست."
+# --- پیام‌ها - ویرایش شده ---
+WELCOME_MESSAGE = "سلام دوست عزیز، چه کمکی از دستم برمی‌آید؟\n\n✨ به دنیای DEX خوش آمدید"
+IMAGE_MODE_MESSAGE = "🎨 حالت ساخت تصویر فعال شد!\nتوصیف تصویرت را بفرست."
 
 def get_main_menu():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("⚪ داده‌های کاربر", callback_data="user_info")],
+        [InlineKeyboardButton("⚪ اطلاعات کاربر", callback_data="user_info")],
         [InlineKeyboardButton("🟢 ابزارها", callback_data="more_services")]
     ])
 
@@ -46,7 +45,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data == "user_info":
         user = update.effective_user
         current_model = context.user_data.get("model", DEFAULT_MODEL)
-        info = f"👤 داده‌های کاربر\nنام: {user.first_name}\nشناسه: `{user.id}`\nمدل فعال: `{current_model}`"
+        info = f"👤 اطلاعات کاربر\nنام: {user.first_name}\nشناسه: `{user.id}`\nمدل فعال: `{current_model}`"
         await query.edit_message_text(info, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")]]), parse_mode="Markdown")
         return CHOOSING
         
@@ -75,7 +74,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = update.message.text
-    status_msg = await update.message.reply_text(f"⏳ پردازش با {IMAGE_MODEL}...")
+    status_msg = await update.message.reply_text("⏳ در حال پردازش...")
     
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
