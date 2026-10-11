@@ -1,9 +1,6 @@
 import os
 import httpx
 import re
-import io
-import time
-import urllib.parse
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (Application, CommandHandler, CallbackQueryHandler, 
                           MessageHandler, ContextTypes, filters, ConversationHandler)
@@ -13,17 +10,19 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CLEANAPIS_API_KEY = os.getenv("CLEANAPIS_API_KEY")
 CLEANAPIS_BASE_URL = "https://cleanapis.com"
 DEFAULT_MODEL = "gpt-5.6-luna"
+# مدلِ موردِ نظرِ تو
 IMAGE_MODEL = "claude-opus-5.5" 
 
+# وضعیت‌ها
 CHOOSING, GENERATING_IMAGE = range(2)
 
-# --- پیام‌های اصلی (تغییر ناپذیر) ---
-WELCOME_MESSAGE = "سلام دوست عزیز، چطور می‌تونم کمکت کنم؟\n\n✨ به دنیای DEX خوش آمدید"
-IMAGE_MODE_MESSAGE = f"🎨 حالت ساخت تصویر با مدلِ {IMAGE_MODEL} فعال شد!\nتوصیفِ تصویرت رو بفرست تا برات خلقش کنم."
+# --- پیام‌ها ---
+WELCOME_MESSAGE = "سلام دکستر! سیستمِ DEX کاملاً یکپارچه و آماده‌ست.\n\n✨ به دنیای DEX خوش آمدید"
+IMAGE_MODE_MESSAGE = f"🎨 حالت ساخت تصویر با مدلِ {IMAGE_MODEL} فعال شد!\nتوصیفِ تصویرت رو بفرست."
 
 def get_main_menu():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("👤 اطلاعات کاربر", callback_data="user_info")],
+        [InlineKeyboardButton("⚪ داده‌های کاربر", callback_data="user_info")],
         [InlineKeyboardButton("🟢 ابزارها", callback_data="more_services")]
     ])
 
@@ -46,7 +45,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if query.data == "user_info":
         user = update.effective_user
-        info = f"👤 اطلاعات کاربر\nنام: {user.first_name}\nشناسه: `{user.id}`\nمدل فعال: `{context.user_data.get('model', DEFAULT_MODEL)}`"
+        info = f"👤 داده‌های کاربر\nنام: {user.first_name}\nشناسه: `{user.id}`\nمدل فعال: `{context.user_data.get('model', DEFAULT_MODEL)}`"
         await query.edit_message_text(info, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")]]), parse_mode="Markdown")
         return CHOOSING
         
@@ -73,34 +72,37 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("مدل با موفقیت دگرگون شد!", reply_markup=get_main_menu())
         return CHOOSING
 
-# --- هندلر تصویرِ ضدِ کش (Anti-Cache) ---
 async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = update.message.text
-    status_msg = await update.message.reply_text("⏳ در حال تولید یک تصویرِ کاملاً جدید...")
+    status_msg = await update.message.reply_text(f"⏳ پردازش با {IMAGE_MODEL}...")
     
     try:
-        # 1. تولید seed تصادفی برای شکستنِ کشِ سرور
-        unique_seed = int(time.time())
-        
-        # 2. تقویتِ پرامپت برای دقتِ بالاتر
-        enhanced_prompt = f"{prompt}, highly detailed, unique digital art, 8k, photorealistic"
-        encoded_prompt = urllib.parse.quote(enhanced_prompt)
-        
-        # 3. ساخت URL با پارامترهای اجبار‌کننده‌ی بازتولید
-        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true&seed={unique_seed}"
-        
-        async with httpx.AsyncClient(timeout=45.0) as img_client:
-            # 4. درخواست با هدرِ غیرکش‌شونده
-            img_response = await img_client.get(image_url, headers={"Cache-Control": "no-cache"})
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            r = await client.post(
+                f"{CLEANAPIS_BASE_URL}/v1/chat/completions", 
+                headers={"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"},
+                json={
+                    "model": IMAGE_MODEL,
+                    "messages": [
+                        {"role": "system", "content": "You are a creative visual engine. If you can provide a direct image URL, do so. If not, describe the scene."},
+                        {"role": "user", "content": f"Generate a visual representation for: {prompt}"}
+                    ]
+                }
+            )
             
-            if img_response.status_code == 200:
-                photo_bytes = io.BytesIO(img_response.content)
-                photo_bytes.name = "image.png"
-                await update.message.reply_photo(photo=photo_bytes, caption="عکس ساخته شد")
+            data = r.json()
+            answer = data["choices"][0]["message"]["content"]
+            
+            # استخراج لینک عکس از متن (در صورت وجود)
+            url_pattern = r'(https?://[^\s<>"]+\.(?:png|jpg|jpeg|gif|webp))'
+            urls = re.findall(url_pattern, answer)
+            
+            if urls:
+                await update.message.reply_photo(photo=urls[0], caption=f"جادوی {IMAGE_MODEL} برات این رو آورد دکستر! 🎨")
             else:
-                await update.message.reply_text(f"❌ خطای سرور تصویر: کد {img_response.status_code}")
-        
-        await status_msg.delete()
+                await update.message.reply_text(f"🖼 پاسخِ {IMAGE_MODEL}:\n\n{answer}")
+            
+            await status_msg.delete()
                 
     except Exception as e:
         await status_msg.edit_text(f"❌ خطای سیستم: {str(e)}")
@@ -133,7 +135,7 @@ def main():
     )
     
     app.add_handler(conv_handler)
-    print("DEX Bot (Anti-Cache, Forced Generation Mode) is running... 🚀")
+    print("DEX Bot (Opus 5.5 Edition) is running... 🚀")
     app.run_polling()
 
 if __name__ == "__main__":
