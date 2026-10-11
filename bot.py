@@ -2,6 +2,8 @@ import os
 import httpx
 import re
 import logging
+import sqlite3
+from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, CopyTextButton
 from telegram.ext import (Application, CommandHandler, CallbackQueryHandler, 
                           MessageHandler, ContextTypes, filters, ConversationHandler)
@@ -14,6 +16,125 @@ CLEANAPIS_API_KEY = os.getenv("CLEANAPIS_API_KEY")
 CLEANAPIS_BASE_URL = "https://cleanapis.com"
 DEFAULT_MODEL = "gpt-5.6-luna"
 IMAGE_MODEL = "claude-opus-5.5" 
+
+# --- تنظیم ادمین و مالک ---
+OWNER_ID = 8163337709  # مالک اصلی
+ADMIN_IDS = {OWNER_ID}
+admin_env = os.getenv("ADMIN_IDS", os.getenv("ADMIN_ID", ""))
+if admin_env:
+    for x in admin_env.split(","):
+        x = x.strip()
+        if x.isdigit():
+            ADMIN_IDS.add(int(x))
+
+DB_PATH = "bot_memory.db"
+
+# --- دیتابیس دائمی ---
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY,
+            name TEXT,
+            username TEXT,
+            last_seen TEXT
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            role TEXT,
+            text TEXT,
+            time TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def save_user(user):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("INSERT OR REPLACE INTO users (user_id, name, username, last_seen) VALUES (?, ?, ?, ?)",
+                (user.id, user.first_name, user.username or "", datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+    conn.commit()
+    conn.close()
+
+def save_message(user_id, role, text):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("INSERT INTO messages (user_id, role, text, time) VALUES (?, ?, ?, ?)",
+                (user_id, role, text, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+    conn.commit()
+    conn.close()
+
+def get_all_users():
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT user_id, name, username, last_seen FROM users ORDER BY last_seen DESC")
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+def get_user_logs(user_id, limit=15):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT role, text, time FROM messages WHERE user_id=? ORDER BY id DESC LIMIT ?", (user_id, limit))
+    rows = cur.fetchall()
+    conn.close()
+    return list(reversed(rows))
+
+def get_stats():
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) FROM users")
+    users_count = cur.fetchone()[0]
+    cur.execute("SELECT COUNT(*) FROM messages")
+    msgs_count = cur.fetchone()[0]
+    conn.close()
+    return users_count, msgs_count
+
+def get_last_messages(limit=10):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT user_id, role, text, time FROM messages WHERE role=\'user\' ORDER BY id DESC LIMIT ?", (limit,))
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+def is_admin(user_id: int) -> bool:
+    return user_id in ADMIN_IDS
+
+async def notify_admins(context: ContextTypes.DEFAULT_TYPE, user, user_text: str, bot_answer: str = None):
+    if is_admin(user.id):
+        return
+    username = f"@{user.username}" if user.username else "بدون یوزرنیم"
+    log_text = (
+        f"📩 **پیام جدید**\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 نام: `{user.first_name}`\n"
+        f"🆔 آیدی: `{user.id}`\n"
+        f"🔗 یوزرنیم: {username}\n"
+        f"⏰ زمان: {datetime.now().strftime(\'%Y-%m-%d %H:%M:%S\')}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 **پیام کاربر:**\n{user_text[:1000]}\n"
+    )
+    if bot_answer:
+        log_text += f"\n🤖 **پاسخ ربات:**\n{bot_answer[:1000]}"
+    
+    for admin_id in ADMIN_IDS:
+        try:
+            await context.bot.send_message(
+                chat_id=admin_id, 
+                text=log_text, 
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton(f"👁 مشاهده چت کامل {user.first_name}", callback_data=f"admin_view_{user.id}")]
+                ])
+            )
+        except Exception as e:
+            logging.error(f"Failed to notify admin {admin_id}: {e}")
 
 MODELS_WITH_EMOJI = {
     "gpt-5.6-luna": "🌙",
@@ -38,11 +159,14 @@ BEAUTIFY_INSTRUCTION = """
 5. از Markdown تلگرام استفاده کن.
 """
 
-def get_main_menu():
-    return InlineKeyboardMarkup([
+def get_main_menu(user_id=None):
+    buttons = [
         [InlineKeyboardButton("⚪ اطلاعات کاربر", callback_data="user_info")],
         [InlineKeyboardButton("🟢 ابزارها", callback_data="more_services")]
-    ])
+    ]
+    if user_id and is_admin(user_id):
+        buttons.append([InlineKeyboardButton("👑 پنل ادمین", callback_data="admin_panel")])
+    return InlineKeyboardMarkup(buttons)
 
 def get_services_menu():
     return InlineKeyboardMarkup([
@@ -51,11 +175,26 @@ def get_services_menu():
         [InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")]
     ])
 
+def get_admin_menu():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("👥 لیست کاربران", callback_data="admin_users")],
+        [InlineKeyboardButton("💬 آخرین پیام‌ها (10)", callback_data="admin_recent")],
+        [InlineKeyboardButton("📊 آمار", callback_data="admin_stats")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")]
+    ])
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if "model" not in context.user_data: 
         context.user_data["model"] = DEFAULT_MODEL
-    await update.message.reply_text(WELCOME_MESSAGE, reply_markup=get_main_menu())
+    save_user(update.effective_user)
+    await update.message.reply_text(WELCOME_MESSAGE, reply_markup=get_main_menu(update.effective_user.id))
     return CHOOSING
+
+async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("⛔ شما دسترسی ادمین ندارید.")
+        return
+    await update.message.reply_text("👑 **پنل ادمین**", parse_mode="Markdown", reply_markup=get_admin_menu())
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -63,28 +202,20 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         if query.data == "user_info":
-            # === حل مشکل کادر شکسته + دکمه شیشه‌ای کپی‌شونده ===
             user = update.effective_user
             current_model = context.user_data.get("model", DEFAULT_MODEL)
-            
             info = (
                 f"👤 **اطلاعات کاربر** 🪞\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
                 f"👤 **نام:** `{user.first_name}`\n"
                 f"━━━━━━━━━━━━━━━━━━━━"
             )
-            
             keyboard = [
                 [InlineKeyboardButton(text=f"📋 شناسه: {user.id} 🆔", copy_text=CopyTextButton(text=str(user.id)))],
                 [InlineKeyboardButton(text=f"📋 مدل: {current_model} 🤖", copy_text=CopyTextButton(text=current_model))],
                 [InlineKeyboardButton("⬅️ بازگشت", callback_data="back_main")]
             ]
-            
-            await query.edit_message_text(
-                info,
-                parse_mode="Markdown",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
+            await query.edit_message_text(info, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
             return CHOOSING
             
         elif query.data == "more_services":
@@ -96,7 +227,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return GENERATING_IMAGE
             
         elif query.data == "back_main":
-            await query.edit_message_text(WELCOME_MESSAGE, reply_markup=get_main_menu())
+            await query.edit_message_text(WELCOME_MESSAGE, reply_markup=get_main_menu(query.from_user.id))
             return CHOOSING
             
         elif query.data == "change_model":
@@ -110,18 +241,91 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["model"] = new_model
             selected_emoji = MODELS_WITH_EMOJI.get(new_model, "✅")
             text = f"{selected_emoji} مدل با موفقیت به {new_model} دگرگون شد!"
-            await query.edit_message_text(text, reply_markup=get_main_menu())
+            await query.edit_message_text(text, reply_markup=get_main_menu(query.from_user.id))
             return CHOOSING
+
+        # ===== پنل ادمین - فقط مالک 8163337709 =====
+        elif query.data == "admin_panel":
+            if not is_admin(query.from_user.id):
+                await query.answer("⛔ دسترسی ندارید", show_alert=True)
+                return CHOOSING
+            await query.edit_message_text("👑 **پنل مدیریت مالک**\nفقط شما این بخش را می‌بینید:", parse_mode="Markdown", reply_markup=get_admin_menu())
+            return CHOOSING
+
+        elif query.data == "admin_users":
+            if not is_admin(query.from_user.id): return CHOOSING
+            users = get_all_users()
+            if not users:
+                await query.edit_message_text("هنوز کاربری پیامی نداده.", reply_markup=get_admin_menu())
+                return CHOOSING
+            buttons = []
+            for uid, name, username, last_seen in users[:20]:
+                username_str = f"@{username}" if username else "بدون یوزرنیم"
+                buttons.append([InlineKeyboardButton(f"{name} | {username_str} | {uid}", callback_data=f"admin_view_{uid}")])
+            buttons.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")])
+            await query.edit_message_text(f"👥 **لیست کاربران ({len(users)} نفر):**\nبرای دیدن چت روی هر کاربر بزن:", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+            return CHOOSING
+
+        elif query.data == "admin_recent":
+            if not is_admin(query.from_user.id): return CHOOSING
+            rows = get_last_messages(10)
+            if not rows:
+                await query.edit_message_text("هنوز پیامی ثبت نشده.", reply_markup=get_admin_menu())
+                return CHOOSING
+            text = "💬 **آخرین پیام‌های کاربران:**\n━━━━━━━━━━━━\n"
+            users_map = {u[0]: u for u in get_all_users()}
+            for uid, role, msg_text, time in rows:
+                info = users_map.get(uid, (uid, "?", "", ""))
+                text += f"👤 {info[1]} (`{uid}`) @{info[2] or \'-\'}\n> {msg_text[:60]}...\n\n"
+            await query.edit_message_text(text, parse_mode="Markdown", reply_markup=get_admin_menu())
+            return CHOOSING
+
+        elif query.data == "admin_stats":
+            if not is_admin(query.from_user.id): return CHOOSING
+            users_count, msgs_count = get_stats()
+            text = f"📊 **آمار ربات**\n━━━━━━━━━━━━\n👥 کاربران: {users_count}\n💬 کل پیام‌ها: {msgs_count}\n👑 مالک: `{OWNER_ID}`"
+            await query.edit_message_text(text, parse_mode="Markdown", reply_markup=get_admin_menu())
+            return CHOOSING
+
+        elif query.data.startswith("admin_view_"):
+            if not is_admin(query.from_user.id): return CHOOSING
+            uid = int(query.data.replace("admin_view_", ""))
+            logs = get_user_logs(uid, 15)
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+            cur.execute("SELECT name, username FROM users WHERE user_id=?", (uid,))
+            row = cur.fetchone()
+            conn.close()
+            if not row:
+                await query.edit_message_text("چتی برای این کاربر یافت نشد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_users")]]))
+                return CHOOSING
+            name, username = row
+            header = f"👤 **چت کاربر:** {name}\n🆔 `{uid}`\n🔗 @{username or \'بدون یوزرنیم\'}\n━━━━━━━━━━━━\n"
+            body = ""
+            for role, msg_text, time in logs:
+                role_icon = "👤 کاربر:" if role == \'user\' else "🤖 ربات:"
+                body += f"{role_icon} {msg_text[:300]}\n[{time}]\n---\n"
+            full_text = (header + body)[:4000]
+            if not full_text.strip(): full_text = header + "پیامی یافت نشد"
+            await query.edit_message_text(full_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 لیست کاربران", callback_data="admin_users")],
+                [InlineKeyboardButton("🏠 پنل ادمین", callback_data="admin_panel")]
+            ]))
+            return CHOOSING
+
     except Exception as e:
         logging.error(f"Error in button_handler: {e}")
         try:
-            await query.edit_message_text("❌ خطایی رخ داد، دوباره /start بزن", reply_markup=get_main_menu())
+            await query.edit_message_text("❌ خطایی رخ داد، دوباره /start بزن", reply_markup=get_main_menu(query.from_user.id))
         except:
             pass
         return CHOOSING
 
 async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = update.message.text
+    user = update.effective_user
+    save_user(user)
+    save_message(user.id, "user", f"[IMAGE] {prompt}")
     status_msg = await update.message.reply_text("⏳ در حال پردازش... ✨\nتصویرت در حال ساخته شدنه 🎨")
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
@@ -139,14 +343,14 @@ async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
             r.raise_for_status()
             data = r.json()
             answer = data["choices"][0]["message"]["content"]
+            save_message(user.id, "assistant", answer)
+            await notify_admins(context, user, prompt, answer)
             url_pattern = r"https?://[^\s<>\"\)]+\.(?:png|jpg|jpeg|gif|webp)(?:\?[^\s<>\"\)]*)?"
             urls = re.findall(url_pattern, answer, re.IGNORECASE)
             if not urls:
                 urls = re.findall(r"https?://[^\s<>\"\)]+", answer)
-            try:
-                await status_msg.delete()
-            except:
-                pass
+            try: await status_msg.delete()
+            except: pass
             if urls:
                 image_url = urls[0].strip().rstrip(").>")
                 await update.message.reply_photo(photo=image_url, caption="🖼️ تصویر با موفقیت ساخته شد ✅✨")
@@ -154,14 +358,15 @@ async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
                 await update.message.reply_text(f"🖼 پاسخِ {IMAGE_MODEL}:\n\n{answer}")
     except Exception as e:
         logging.error(f"Image error: {e}")
-        try:
-            await status_msg.edit_text(f"❌ خطای سیستم: {str(e)}")
-        except:
-            await update.message.reply_text(f"❌ خطای سیستم: {str(e)}")
+        try: await status_msg.edit_text(f"❌ خطای سیستم: {str(e)}")
+        except: await update.message.reply_text(f"❌ خطای سیستم: {str(e)}")
     return GENERATING_IMAGE
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
+    user = update.effective_user
+    save_user(user)
+    save_message(user.id, "user", text)
     status_msg = await update.message.reply_text("⏳ در حال پردازش... ✨\nلطفا کمی صبر کن 🤖💭")
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
@@ -176,29 +381,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             data = r.json()
             answer = data["choices"][0]["message"]["content"]
             answer = answer.replace("OpenAI", "DEX").replace("Google", "DEX").replace("Anthropic", "DEX")
-            try:
-                await status_msg.delete()
-            except:
-                pass
-            try:
-                await update.message.reply_text(answer, parse_mode="Markdown")
-            except:
-                await update.message.reply_text(answer)
+            save_message(user.id, "assistant", answer)
+            await notify_admins(context, user, text, answer)
+            try: await status_msg.delete()
+            except: pass
+            try: await update.message.reply_text(answer, parse_mode="Markdown")
+            except: await update.message.reply_text(answer)
     except Exception as e:
         logging.error(f"Message error: {e}")
-        try:
-            await status_msg.edit_text(f"❌ خطا در ارتباط با سرور: {str(e)}")
-        except:
-            await update.message.reply_text(f"❌ خطا در ارتباط با سرور: {str(e)}")
+        try: await status_msg.edit_text(f"❌ خطا در ارتباط با سرور: {str(e)}")
+        except: await update.message.reply_text(f"❌ خطا در ارتباط با سرور: {str(e)}")
     return CHOOSING
 
 def main():
+    init_db()
     if not TELEGRAM_BOT_TOKEN or not CLEANAPIS_API_KEY:
         print("❌ TELEGRAM_BOT_TOKEN یا CLEANAPIS_API_KEY تنظیم نشده!")
         return
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],
+        entry_points=[CommandHandler("start", start), CommandHandler("admin", admin_command)],
         states={
             CHOOSING: [CallbackQueryHandler(button_handler), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)],
             GENERATING_IMAGE: [CallbackQueryHandler(button_handler), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_image_prompt)],
@@ -207,7 +409,10 @@ def main():
         allow_reentry=True
     )
     app.add_handler(conv_handler)
-    print("DEX Bot (Fixed Edition) is running... 🚀")
+    app.add_handler(CommandHandler("admin", admin_command))
+    print("DEX Bot (Admin Permanent Edition) is running... 🚀")
+    print(f"👑 Owner ID: {OWNER_ID}")
+    print(f"💾 DB Path: {DB_PATH}")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
