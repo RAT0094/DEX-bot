@@ -10,7 +10,6 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CLEANAPIS_API_KEY = os.getenv("CLEANAPIS_API_KEY")
 CLEANAPIS_BASE_URL = "https://cleanapis.com"
 DEFAULT_MODEL = "gpt-5.6-luna"
-# مدلِ موردِ نظرِ تو
 IMAGE_MODEL = "claude-opus-5.5" 
 
 # وضعیت‌ها
@@ -35,7 +34,7 @@ def get_services_menu():
 
 # --- هندلرها ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if 'model' not in context.user_data: context.user_data['model'] = DEFAULT_MODEL
+    if \'model\' not in context.user_data: context.user_data[\'model\'] = DEFAULT_MODEL
     await update.message.reply_text(WELCOME_MESSAGE, reply_markup=get_main_menu())
     return CHOOSING
 
@@ -45,7 +44,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if query.data == "user_info":
         user = update.effective_user
-        info = f"👤 داده‌های کاربر\nنام: {user.first_name}\nشناسه: `{user.id}`\nمدل فعال: `{context.user_data.get('model', DEFAULT_MODEL)}`"
+        info = f"👤 داده‌های کاربر\nنام: {user.first_name}\nشناسه: `{user.id}`\nمدل فعال: `{context.user_data.get(\'model\', DEFAULT_MODEL)}`"
         await query.edit_message_text(info, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")]]), parse_mode="Markdown")
         return CHOOSING
         
@@ -68,23 +67,23 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return CHOOSING
         
     elif query.data.startswith("set_"):
-        context.user_data['model'] = query.data.replace("set_", "")
+        context.user_data[\'model\'] = query.data.replace("set_", "")
         await query.edit_message_text("مدل با موفقیت دگرگون شد!", reply_markup=get_main_menu())
         return CHOOSING
 
 async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = update.message.text
-    status_msg = await update.message.reply_text(f"⏳ پردازش با {IMAGE_MODEL}...")
+    status_msg = await update.message.reply_text(f"⏳ در حال ساخت تصویر با {IMAGE_MODEL}...")
     
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=90.0) as client:
             r = await client.post(
                 f"{CLEANAPIS_BASE_URL}/v1/chat/completions", 
                 headers={"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"},
                 json={
                     "model": IMAGE_MODEL,
                     "messages": [
-                        {"role": "system", "content": "You are a creative visual engine. If you can provide a direct image URL, do so. If not, describe the scene."},
+                        {"role": "system", "content": "You are a creative visual engine. Provide a direct image URL if possible."},
                         {"role": "user", "content": f"Generate a visual representation for: {prompt}"}
                     ]
                 }
@@ -93,16 +92,28 @@ async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
             data = r.json()
             answer = data["choices"][0]["message"]["content"]
             
-            # استخراج لینک عکس از متن (در صورت وجود)
-            url_pattern = r'(https?://[^\s<>"]+\.(?:png|jpg|jpeg|gif|webp))'
-            urls = re.findall(url_pattern, answer)
-            
+            # استخراج لینک عکس - هم لینک مستقیم هم لینک داخل مارکداون
+            url_pattern = r\'https?://[^\s<>"\)]+\.(?:png|jpg|jpeg|gif|webp)(?:\?[^\s<>"\)]*)?\'
+            urls = re.findall(url_pattern, answer, re.IGNORECASE)
+
+            if not urls:
+                md_pattern = r\'https?://[^\s<>"\)]+\'
+                urls = re.findall(md_pattern, answer)
+
             if urls:
-                await update.message.reply_photo(photo=urls[0], caption=f"جادوی {IMAGE_MODEL} برات این رو آورد دکستر! 🎨")
+                image_url = urls[0].strip().rstrip(\').>\')
+                # ارسال خود تصویر نه لینک
+                await update.message.reply_photo(
+                    photo=image_url, 
+                    caption="تصویر با موفقیت ساخته شد ✅"
+                )
             else:
                 await update.message.reply_text(f"🖼 پاسخِ {IMAGE_MODEL}:\n\n{answer}")
             
-            await status_msg.delete()
+            try:
+                await status_msg.delete()
+            except:
+                pass
                 
     except Exception as e:
         await status_msg.edit_text(f"❌ خطای سیستم: {str(e)}")
@@ -114,7 +125,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     async with httpx.AsyncClient(timeout=60.0) as client:
         r = await client.post(f"{CLEANAPIS_BASE_URL}/v1/chat/completions", 
                               headers={"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"},
-                              json={"model": context.user_data.get('model', DEFAULT_MODEL), 
+                              json={"model": context.user_data.get(\'model\', DEFAULT_MODEL), 
                                     "messages": [{"role": "system", "content": "You are a helpful assistant developed by DEX."}, {"role": "user", "content": text}]})
         
         answer = r.json()["choices"][0]["message"]["content"]
@@ -140,4 +151,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-  
