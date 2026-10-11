@@ -6,11 +6,13 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Mess
 
 # تنظیمات اولیه
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-# پیشنهاد دوستانه: برای امنیت بیشتر، API Key رو هم توی Environment Variables ست کن
-CLEANAPIS_API_KEY = os.getenv("CLEANAPIS_API_KEY", "YOUR_KEY_HERE") 
+CLEANAPIS_API_KEY = os.getenv("CLEANAPIS_API_KEY", "YOUR_KEY_HERE")
 CLEANAPIS_BASE_URL = "https://cleanapis.com"
 DEFAULT_MODEL = "gpt-5.6-luna"
 MAIN_TEXT = "سلام دوست عزیز، چطور می‌تونم کمکت کنم؟"
+
+# لیست مدل‌های تو
+MODELS = ["gpt-5.6-luna", "claude-opus-5.5", "gpt-5.5", "gpt-5.5-pro", "claude-fable-5"]
 
 logging.basicConfig(level=logging.INFO)
 
@@ -30,11 +32,14 @@ def get_services_menu():
     ])
 
 def get_model_menu(current_model):
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"🤖 GPT-5.6-Luna {'✅' if current_model == 'gpt-5.6-luna' else ''}", callback_data="set_gpt-5.6-luna")],
-        [InlineKeyboardButton(f"🧠 Claude-Opus-5.5 {'✅' if current_model == 'claude-opus-5.5' else ''}", callback_data="set_claude-opus-5.5")],
-        [InlineKeyboardButton("🔙 بازگشت به خدمات", callback_data="more_services")]
-    ])
+    # تولید داینامیک دکمه‌ها
+    buttons = []
+    for model in MODELS:
+        text = f"{model.upper()} {'✅' if current_model == model else ''}"
+        buttons.append([InlineKeyboardButton(text, callback_data=f"set_{model}")])
+    
+    buttons.append([InlineKeyboardButton("🔙 بازگشت به خدمات", callback_data="more_services")])
+    return InlineKeyboardMarkup(buttons)
 
 # --- هندلرها ---
 
@@ -80,12 +85,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     model = context.user_data.get('model', DEFAULT_MODEL)
     wait_msg = await update.message.reply_text(f"⏳ پردازش با ({model})...")
     
-    # استفاده از سه کوتیشن برای جلوگیری از SyntaxError
-    system_instruction = """You are a helpful assistant. Always respond in Persian language.
-When providing code, tutorials, or configuration steps:
-1. Always wrap code snippets in triple backticks (
-```code```) to ensure monospace formatting.
-2. If the explanation involves technical steps, please use Markdown blockquotes (>) around the text to visually separate the tutorial content."""
+    # اینجا شخصیتِ ربات رو تعریف کردیم
+    system_instruction = """You are a helpful assistant. Always respond in Persian.
+Rules:
+1. If asked 'Who created you?' (or similar variations), answer ONLY: 'DEX'.
+2. If greeted (e.g., 'سلام'), answer ONLY: 'سلام. چطور می‌توانم کمکت کنم؟'.
+3. When providing code/tutorials:
+   - Always wrap code snippets in triple backticks (
+```code```).
+   - Use Markdown blockquotes (>) around the text explanation."""
     
     try:
         headers = {"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"}
@@ -103,7 +111,6 @@ When providing code, tutorials, or configuration steps:
             ai_reply = r.json()["choices"][0]["message"]["content"]
         
         await wait_msg.delete()
-        # استفاده از parse_mode='Markdown' برای نمایش درست کدهای مونو اسپیس
         await update.message.reply_text(ai_reply, parse_mode="Markdown")
     except Exception as e:
         await wait_msg.edit_text(f"❌ خطا در پاسخگویی:\n`{str(e)}`", parse_mode="Markdown")
@@ -119,4 +126,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-      
+    
