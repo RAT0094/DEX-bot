@@ -26,7 +26,6 @@ MODELS_WITH_EMOJI = {
 
 CHOOSING, GENERATING_IMAGE = range(2)
 
-# === ویرایش شده: حذف کلمه DEX ===
 WELCOME_MESSAGE = "سلام دوست عزیز، چه کمکی از دستم برمی‌آید؟\n\n✨ خوش آمدید"
 IMAGE_MODE_MESSAGE = "🎨 حالت ساخت تصویر فعال شد!\nتوصیف تصویرت را بفرست."
 
@@ -64,22 +63,21 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         if query.data == "user_info":
-            # === ویرایش شده: اطلاعات کاربر + دکمه شیشه‌ای کپی‌شونده ===
+            # === حل مشکل کادر شکسته + دکمه شیشه‌ای کپی‌شونده ===
             user = update.effective_user
             current_model = context.user_data.get("model", DEFAULT_MODEL)
             
             info = (
-                f"👤 **اطلاعات کاربر**\n"
-                f"╭─────────── 🪞 ───────────╮\n"
-                f"│ 👤 **نام:** `{user.first_name}`\n"
-                f"╰───────────────────────────╯"
+                f"👤 **اطلاعات کاربر** 🪞\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"👤 **نام:** `{user.first_name}`\n"
+                f"━━━━━━━━━━━━━━━━━━━━"
             )
             
-            # دکمه‌های شیشه‌ای که با لمس کپی میشن
             keyboard = [
-                [InlineKeyboardButton(text=f"🆔 شناسه: {user.id} 📋", copy_text=CopyTextButton(text=str(user.id)))],
-                [InlineKeyboardButton(text=f"🤖 مدل: {current_model} 📋", copy_text=CopyTextButton(text=current_model))],
-                [InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")]
+                [InlineKeyboardButton(text=f"📋 شناسه: {user.id} 🆔", copy_text=CopyTextButton(text=str(user.id)))],
+                [InlineKeyboardButton(text=f"📋 مدل: {current_model} 🤖", copy_text=CopyTextButton(text=current_model))],
+                [InlineKeyboardButton("⬅️ بازگشت", callback_data="back_main")]
             ]
             
             await query.edit_message_text(
@@ -90,7 +88,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return CHOOSING
             
         elif query.data == "more_services":
-            # === ویرایش شده: حذف DEX ===
             await query.edit_message_text("بخش ابزارها:", reply_markup=get_services_menu())
             return CHOOSING
             
