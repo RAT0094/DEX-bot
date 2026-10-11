@@ -2,7 +2,7 @@ import os
 import httpx
 import re
 import io
-import urllib.parse # برای کدگذاری دقیق پرامپت
+import urllib.parse
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (Application, CommandHandler, CallbackQueryHandler, 
                           MessageHandler, ContextTypes, filters, ConversationHandler)
@@ -72,18 +72,18 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("مدل با موفقیت دگرگون شد!", reply_markup=get_main_menu())
         return CHOOSING
 
-# --- هندلر تصویرِ بهینه‌شده ---
+# --- هندلر تصویرِ تقویت‌شده ---
 async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = update.message.text
-    status_msg = await update.message.reply_text("⏳ در حال ساخت تصویر دقیق...")
+    status_msg = await update.message.reply_text("⏳ در حال جادو...")
     
     try:
-        # دیگر از LLM برای ساختِ URL استفاده نمی‌کنیم (چون تفسیر می‌کند!)
-        # مستقیماً پرامپتِ کاربر را کدگذاری و تبدیل به URL می‌کنیم
-        encoded_prompt = urllib.parse.quote(prompt)
-        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
+        # تقویتِ پرامپت برای جلوگیری از رفتارهای عجیب و خودشیفتگیِ مدل
+        enhanced_prompt = f"{prompt}, photorealistic, high quality, 8k, detailed, professional photography"
+        encoded_prompt = urllib.parse.quote(enhanced_prompt)
+        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true&seed=42"
         
-        async with httpx.AsyncClient(timeout=30.0) as img_client:
+        async with httpx.AsyncClient(timeout=45.0) as img_client:
             img_response = await img_client.get(image_url)
             if img_response.status_code == 200:
                 photo_bytes = io.BytesIO(img_response.content)
@@ -125,9 +125,9 @@ def main():
     )
     
     app.add_handler(conv_handler)
-    print("DEX Bot (Direct Prompt Delivery Mode) is running... 🚀")
+    print("DEX Bot (Enhanced Image Delivery Mode) is running... 🚀")
     app.run_polling()
 
 if __name__ == "__main__":
     main()
-  
+      
