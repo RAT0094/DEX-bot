@@ -1,38 +1,26 @@
 import os
 import logging
 import httpx
-import re
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, ContextTypes, filters
+from telegram.ext import (Application, CommandHandler, CallbackQueryHandler, 
+                          MessageHandler, ContextTypes, filters, ConversationHandler)
 
 # --- کانفیگ ---
+# یادت نره اینا رو توی محیط سیستمت ست کنی!
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CLEANAPIS_API_KEY = os.getenv("CLEANAPIS_API_KEY")
 CLEANAPIS_BASE_URL = "https://cleanapis.com"
 DEFAULT_MODEL = "gpt-5.6-luna"
+IMAGE_MODEL = "claude-opus-5.5" # مدل پیش‌فرض برای بخش تصویر
+
+# وضعیت‌ها برای ConversationHandler
+CHOOSING, GENERATING_IMAGE = range(2)
 
 # --- پیام‌های ثابت ---
 WELCOME_MESSAGE = "سلام دوست عزیز، چطور می‌تونم کمکت کنم؟\n\n✨ به دنیای DEX خوش آمدید"
-COMING_SOON_MESSAGE = "این قابلیت به‌زودی اضافه می‌شود"
+IMAGE_MODE_MESSAGE = f"🎨 حالت ساخت تصویر فعال شد!\n(مدلِ متفکر: {IMAGE_MODEL})\nلطفاً توصیفِ تصویرِ مورد نظرت رو بفرست."
 
-MODEL_EMOJIS = {"gpt-5.6-luna": "🌙", "claude-opus-5.5": "🧠", "gpt-5.5": "⚡"}
-MODELS = list(MODEL_EMOJIS.keys())
-FORBIDDEN_NAMES = ["OpenAI", "Google", "Anthropic", "Meta", "Microsoft"]
-
-logging.basicConfig(level=logging.INFO)
-
-# --- منطق ---
-def is_identity_query(text):
-    return any(k in text.lower() for k in ["سازنده", "کی ساخته", "خالق", "owner", "creator"])
-
-def sanitize_response(text):
-    pattern = re.compile('|'.join(FORBIDDEN_NAMES), re.IGNORECASE)
-    return pattern.sub("DEX", text)
-
-def get_system_instruction():
-    return "You are a helpful assistant developed by DEX. Always respond in Persian. Never use Arabic. Always format code in Markdown."
-
-# --- رابط‌های کاربری (منوها) ---
+# --- توابع رابط کاربری ---
 def get_main_menu():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("⚪ اطلاعات کاربر", callback_data="user_info")],
@@ -41,7 +29,7 @@ def get_main_menu():
 
 def get_services_menu():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🎨 ساخت تصویر", callback_data="generate_image")],
+        [InlineKeyboardButton("🎨 ساخت تصویر", callback_data="gen_mode")],
         [InlineKeyboardButton("⚙️ تغییر مدل", callback_data="change_model")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")]
     ])
@@ -51,6 +39,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if 'model' not in context.user_data: 
         context.user_data['model'] = DEFAULT_MODEL
     await update.message.reply_text(WELCOME_MESSAGE, reply_markup=get_main_menu())
+    return CHOOSING
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -58,59 +47,84 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if query.data == "user_info":
         user = update.effective_user
-        info = f"👤 نام: {user.first_name}\nآیدی: `{user.id}`\nمدل: `{context.user_data.get('model', DEFAULT_MODEL)}`"
+        info = f"👤 اطلاعات کاربر\nنام: {user.first_name}\nآیدی: `{user.id}`\nمدل فعال: `{context.user_data.get('model', DEFAULT_MODEL)}`"
         await query.edit_message_text(info, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")]]), parse_mode="Markdown")
+        return CHOOSING
         
     elif query.data == "more_services":
         await query.edit_message_text("بخش ابزارهای DEX:", reply_markup=get_services_menu())
+        return CHOOSING
         
-    elif query.data == "generate_image":
-        # دکمه‌ای که فعلا کار نمیکنه
-        await query.answer(COMING_SOON_MESSAGE, show_alert=True)
+    elif query.data == "gen_mode":
+        await query.edit_message_text(IMAGE_MODE_MESSAGE, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت به منو", callback_data="back_main")]]))
+        return GENERATING_IMAGE
         
     elif query.data == "back_main":
         await query.edit_message_text(WELCOME_MESSAGE, reply_markup=get_main_menu())
+        return CHOOSING
         
     elif query.data == "change_model":
-        buttons = [[InlineKeyboardButton(m, callback_data=f"set_{m}")] for m in MODELS]
+        buttons = [[InlineKeyboardButton(m, callback_data=f"set_{m}")] for m in ["gpt-5.6-luna", "claude-opus-5.5", "gpt-5.5"]]
         buttons.append([InlineKeyboardButton("🔙 بازگشت", callback_data="more_services")])
         await query.edit_message_text("یک مدل برگزین:", reply_markup=InlineKeyboardMarkup(buttons))
+        return CHOOSING
         
     elif query.data.startswith("set_"):
         context.user_data['model'] = query.data.replace("set_", "")
         await query.edit_message_text("مدل با موفقیت تغییر کرد!", reply_markup=get_main_menu())
+        return CHOOSING
+
+async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    prompt = update.message.text
+    await update.message.reply_text(f"🚀 در حال پردازشِ تصویر با مدل {IMAGE_MODEL}...\n\nپرامپت: '{prompt}'")
+    
+    # اینجا درخواستِ تصویرسازی با مدل انتخابی فرستاده میشه
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            # در اینجا از مدلِ خواسته شده (IMAGE_MODEL) استفاده می‌کنیم
+            r = await client.post(f"{CLEANAPIS_BASE_URL}/v1/chat/completions", 
+                                  headers={"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"},
+                                  json={"model": IMAGE_MODEL, 
+                                        "messages": [{"role": "system", "content": "You are an artist assistant by DEX."}, 
+                                                     {"role": "user", "content": f"Generate an image based on: {prompt}"}]})
+            
+            # در دنیای واقعی، اینجا باید پاسخِ API رو هندل کنی (مثلاً دریافتِ URL عکس)
+            # فعلاً یک پیام تأیید می‌فرستیم
+            await update.message.reply_text("✅ درخواست ثبت شد. (در حال پیاده‌سازی بخش نمایش تصویر...)")
+    except Exception as e:
+        await update.message.reply_text(f"خطایی پیش اومد: {str(e)}")
+        
+    return GENERATING_IMAGE
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
-    if is_identity_query(text):
-        await update.message.reply_text("DEX")
-        return
-    
-    # پردازش متن
     async with httpx.AsyncClient(timeout=60.0) as client:
         r = await client.post(f"{CLEANAPIS_BASE_URL}/v1/chat/completions", 
                               headers={"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"},
                               json={"model": context.user_data.get('model', DEFAULT_MODEL), 
-                                    "messages": [{"role": "system", "content": get_system_instruction()}, {"role": "user", "content": text}]})
+                                    "messages": [{"role": "system", "content": "You are a helpful assistant developed by DEX."}, {"role": "user", "content": text}]})
+        
+        # پاکسازی پاسخ از برندهای غیر DEX
         answer = r.json()["choices"][0]["message"]["content"]
-        await update.message.reply_text(sanitize_response(answer), parse_mode="Markdown")
+        answer = answer.replace("OpenAI", "DEX").replace("Google", "DEX").replace("Anthropic", "DEX")
+        
+        await update.message.reply_text(answer, parse_mode="Markdown")
+    return CHOOSING
 
-async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    doc = update.message.document
-    ext = doc.file_name.split('.')[-1].lower()
-    allowed = ['pdf', 'docx', 'doc', 'txt', 'py', 'json', 'csv']
-    
-    if ext not in allowed:
-        await update.message.reply_text(f"🚫 این نوع فایل (`.{ext}`) پشتیبانی نمی‌شود.")
-        return
-    await update.message.reply_text("✅ پرونده دریافت شد. در حال تحلیل محتوا...")
-
+# --- اجرای ربات ---
 def main():
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(button_handler))
-    app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler("start", start)],
+        states={
+            CHOOSING: [CallbackQueryHandler(button_handler), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)],
+            GENERATING_IMAGE: [CallbackQueryHandler(button_handler), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_image_prompt)],
+        },
+        fallbacks=[CommandHandler("start", start)],
+    )
+    
+    app.add_handler(conv_handler)
     print("DEX Bot is running... 🚀")
     app.run_polling()
 
