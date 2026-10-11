@@ -32,6 +32,16 @@ CHOOSING, GENERATING_IMAGE = range(2)
 WELCOME_MESSAGE = "سلام دوست عزیز، چه کمکی از دستم برمی‌آید؟\n\n✨ به دنیای DEX خوش آمدید"
 IMAGE_MODE_MESSAGE = "🎨 حالت ساخت تصویر فعال شد!\nتوصیف تصویرت را بفرست."
 
+# --- پرامپت جدید برای زیباسازی پیام - اضافه شده ---
+BEAUTIFY_INSTRUCTION = """
+همیشه این قوانین نگارشی را رعایت کن:
+1. در همه‌ی پیام‌ها از ایموجی مرتبط استفاده کن تا پیام زنده و زیبا باشد.
+2. اسم بازی، فیلم، کتاب یا اصطلاحات خاص را حتما با **Bold** یا `mono` یا > نقل قول نمایش بده.
+3. اگر کد، اسکریپت یا دستور برنامه‌نویسی می‌دهی حتما آن را داخل بلاک کد  قرار بده.
+4. برای نقل قول از > در ابتدای خط استفاده کن.
+5. از Markdown تلگرام استفاده کن.
+"""
+
 def get_main_menu():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("⚪ اطلاعات کاربر", callback_data="user_info")],
@@ -60,7 +70,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if query.data == "user_info":
             user = update.effective_user
             current_model = context.user_data.get("model", DEFAULT_MODEL)
-            # بدون Markdown برای جلوگیری از کرش
             info = f"👤 اطلاعات کاربر\nنام: {user.first_name}\nشناسه: {user.id}\nمدل فعال: {current_model}"
             await query.edit_message_text(info, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")]]))
             return CHOOSING
@@ -84,8 +93,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return CHOOSING
             
         elif query.data.startswith("set_"):
-            # فیکس اصلی کرش: عدم استفاده از بک‌اسلش در f-string
-            new_model = query.data[4:]  # به جای replace
+            new_model = query.data[4:]
             context.user_data["model"] = new_model
             selected_emoji = MODELS_WITH_EMOJI.get(new_model, "✅")
             text = f"{selected_emoji} مدل با موفقیت به {new_model} دگرگون شد!"
@@ -101,7 +109,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = update.message.text
-    status_msg = await update.message.reply_text("⏳ در حال پردازش...")
+    status_msg = await update.message.reply_text("⏳ در حال پردازش... ✨\nتصویرت در حال ساخته شدنه 🎨")
     
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
@@ -125,16 +133,17 @@ async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
             if not urls:
                 urls = re.findall(r"https?://[^\s<>\"\)]+", answer)
             
-            if urls:
-                image_url = urls[0].strip().rstrip(").>")
-                await update.message.reply_photo(photo=image_url, caption="تصویر با موفقیت ساخته شد ✅")
-            else:
-                await update.message.reply_text(f"🖼 پاسخِ {IMAGE_MODEL}:\n\n{answer}")
-            
             try:
                 await status_msg.delete()
             except:
                 pass
+
+            if urls:
+                image_url = urls[0].strip().rstrip(").>")
+                await update.message.reply_photo(photo=image_url, caption="🖼️ تصویر با موفقیت ساخته شد ✅✨")
+            else:
+                await update.message.reply_text(f"🖼 پاسخِ {IMAGE_MODEL}:\n\n{answer}")
+            
                 
     except Exception as e:
         logging.error(f"Image error: {e}")
@@ -145,21 +154,33 @@ async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
         
     return GENERATING_IMAGE
 
+# --- هندلر پیام اصلی - فقط همین بخش ویرایش شده برای افزودن حالت پردازش و زیباسازی ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
+    # === اضافه شده: پیام در حال پردازش ===
+    status_msg = await update.message.reply_text("⏳ در حال پردازش... ✨\nلطفا کمی صبر کن 🤖💭")
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
             r = await client.post(f"{CLEANAPIS_BASE_URL}/v1/chat/completions", 
                                   headers={"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"},
                                   json={"model": context.user_data.get("model", DEFAULT_MODEL), 
-                                        "messages": [{"role": "system", "content": "You are a helpful assistant developed by DEX."}, {"role": "user", "content": text}]})
+                                        "messages": [
+                                            {"role": "system", "content": f"You are a helpful assistant developed by DEX. {BEAUTIFY_INSTRUCTION}"}, 
+                                            {"role": "user", "content": text}
+                                        ]})
             
             r.raise_for_status()
             data = r.json()
             answer = data["choices"][0]["message"]["content"]
             answer = answer.replace("OpenAI", "DEX").replace("Google", "DEX").replace("Anthropic", "DEX")
             
-            # جلوگیری از کرش Markdown
+            # === اضافه شده: حذف پیام پردازش قبل از ارسال جواب ===
+            try:
+                await status_msg.delete()
+            except:
+                pass
+
+            # جلوگیری از کرش Markdown + زیباسازی
             try:
                 await update.message.reply_text(answer, parse_mode="Markdown")
             except:
@@ -167,7 +188,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         logging.error(f"Message error: {e}")
-        await update.message.reply_text(f"❌ خطا در ارتباط با سرور: {str(e)}")
+        try:
+            await status_msg.edit_text(f"❌ خطا در ارتباط با سرور: {str(e)}")
+        except:
+            await update.message.reply_text(f"❌ خطا در ارتباط با سرور: {str(e)}")
     return CHOOSING
 
 def main():
