@@ -68,10 +68,25 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         if query.data == "user_info":
+            # === ویرایش شده: حالت شیشه‌ای ===
             user = update.effective_user
             current_model = context.user_data.get("model", DEFAULT_MODEL)
-            info = f"👤 اطلاعات کاربر\nنام: {user.first_name}\nشناسه: {user.id}\nمدل فعال: {current_model}"
-            await query.edit_message_text(info, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")]]))
+            emoji = MODELS_WITH_EMOJI.get(current_model, "✨")
+            
+            info = (
+                f"✨ **پروفایل شیشه‌ای DEX** ✨\n"
+                f"╭─────────── 🪞 ───────────╮\n"
+                f"│ 👤 **نام:** `{user.first_name}`\n"
+                f"│ 🆔 **شناسه:** `{user.id}`\n"
+                f"│ {emoji} **مدل فعال:** `{current_model}`\n"
+                f"╰───────────────────────────╯\n"
+                f"_🔮 شفاف مثل شیشه، براق مثل الماس_"
+            )
+            await query.edit_message_text(
+                info,
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")]])
+            )
             return CHOOSING
             
         elif query.data == "more_services":
@@ -154,10 +169,9 @@ async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
         
     return GENERATING_IMAGE
 
-# --- هندلر پیام اصلی - فقط همین بخش ویرایش شده برای افزودن حالت پردازش و زیباسازی ---
+# --- هندلر پیام اصلی ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
-    # === اضافه شده: پیام در حال پردازش ===
     status_msg = await update.message.reply_text("⏳ در حال پردازش... ✨\nلطفا کمی صبر کن 🤖💭")
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
@@ -174,13 +188,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             answer = data["choices"][0]["message"]["content"]
             answer = answer.replace("OpenAI", "DEX").replace("Google", "DEX").replace("Anthropic", "DEX")
             
-            # === اضافه شده: حذف پیام پردازش قبل از ارسال جواب ===
             try:
                 await status_msg.delete()
             except:
                 pass
 
-            # جلوگیری از کرش Markdown + زیباسازی
             try:
                 await update.message.reply_text(answer, parse_mode="Markdown")
             except:
