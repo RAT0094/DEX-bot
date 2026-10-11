@@ -1,5 +1,6 @@
 import os
 import httpx
+import re
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (Application, CommandHandler, CallbackQueryHandler, 
                           MessageHandler, ContextTypes, filters, ConversationHandler)
@@ -9,15 +10,15 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CLEANAPIS_API_KEY = os.getenv("CLEANAPIS_API_KEY")
 CLEANAPIS_BASE_URL = "https://cleanapis.com"
 DEFAULT_MODEL = "gpt-5.6-luna"
-# مدلِ انتخابی برای تصویرساز
-IMAGE_MODEL = "dall-e-3" 
+# مدلِ موردِ نظرِ تو
+IMAGE_MODEL = "claude-opus-5.5" 
 
-# وضعیت‌ها برای ConversationHandler
+# وضعیت‌ها
 CHOOSING, GENERATING_IMAGE = range(2)
 
 # --- پیام‌ها ---
-WELCOME_MESSAGE = "سلام دوستِ نابغه، چطور می‌تونم امروز کمکت کنم؟\n\n✨ به دنیای DEX خوش آمدید"
-IMAGE_MODE_MESSAGE = f"🎨 حالتِ ساخت تصویر فعال شد!\nتوصیفِ دقیقِ تصویرت رو بفرست تا با قدرتِ تمام برات خلقش کنم."
+WELCOME_MESSAGE = "سلام دکستر! سیستمِ DEX کاملاً یکپارچه و آماده‌ست.\n\n✨ به دنیای DEX خوش آمدید"
+IMAGE_MODE_MESSAGE = f"🎨 حالت ساخت تصویر با مدلِ {IMAGE_MODEL} فعال شد!\nتوصیفِ تصویرت رو بفرست."
 
 def get_main_menu():
     return InlineKeyboardMarkup([
@@ -73,29 +74,35 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = update.message.text
-    status_msg = await update.message.reply_text("⏳ دارم تصویر رو با دقتِ بالا خلق می‌کنم...")
+    status_msg = await update.message.reply_text(f"⏳ پردازش با {IMAGE_MODEL}...")
     
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
-            # اینجا از اندپوینتِ مخصوصِ تصاویر استفاده می‌کنیم
             r = await client.post(
-                f"{CLEANAPIS_BASE_URL}/v1/images/generations", 
+                f"{CLEANAPIS_BASE_URL}/v1/chat/completions", 
                 headers={"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"},
                 json={
                     "model": IMAGE_MODEL,
-                    "prompt": prompt,
-                    "n": 1,
-                    "size": "1024x1024"
+                    "messages": [
+                        {"role": "system", "content": "You are a creative visual engine. If you can provide a direct image URL, do so. If not, describe the scene."},
+                        {"role": "user", "content": f"Generate a visual representation for: {prompt}"}
+                    ]
                 }
             )
             
-            if r.status_code == 200:
-                data = r.json()
-                image_url = data['data'][0]['url']
-                await status_msg.delete()
-                await update.message.reply_photo(photo=image_url, caption=f"این هم از تصویرِ تو دکستر! 🐎💨")
+            data = r.json()
+            answer = data["choices"][0]["message"]["content"]
+            
+            # استخراج لینک عکس از متن (در صورت وجود)
+            url_pattern = r'(https?://[^\s<>"]+\.(?:png|jpg|jpeg|gif|webp))'
+            urls = re.findall(url_pattern, answer)
+            
+            if urls:
+                await update.message.reply_photo(photo=urls[0], caption=f"جادوی {IMAGE_MODEL} برات این رو آورد دکستر! 🎨")
             else:
-                await status_msg.edit_text("❌ خطا در API تصویرسازی. لطفاً چک کن مدلِ `dall-e-3` روی حسابت فعال باشه.")
+                await update.message.reply_text(f"🖼 پاسخِ {IMAGE_MODEL}:\n\n{answer}")
+            
+            await status_msg.delete()
                 
     except Exception as e:
         await status_msg.edit_text(f"❌ خطای سیستم: {str(e)}")
@@ -128,7 +135,7 @@ def main():
     )
     
     app.add_handler(conv_handler)
-    print("DEX Bot (Unified Professional Engine) is running... 🚀")
+    print("DEX Bot (Opus 5.5 Edition) is running... 🚀")
     app.run_polling()
 
 if __name__ == "__main__":
