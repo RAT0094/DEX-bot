@@ -45,7 +45,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if query.data == "user_info":
         user = update.effective_user
-        info = f"👤 داده‌های کاربر\nنام: {user.first_name}\nشناسه: `{user.id}`\nمدل فعال: `{context.user_data.get(\'model\', DEFAULT_MODEL)}`"
+        current_model = context.user_data.get("model", DEFAULT_MODEL)
+        info = f"👤 داده‌های کاربر\nنام: {user.first_name}\nشناسه: `{user.id}`\nمدل فعال: `{current_model}`"
         await query.edit_message_text(info, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")]]), parse_mode="Markdown")
         return CHOOSING
         
@@ -93,13 +94,13 @@ async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
             data = r.json()
             answer = data["choices"][0]["message"]["content"]
             
-            url_pattern = r\'https?://[^\s<>"\)]+\.(?:png|jpg|jpeg|gif|webp)(?:\?[^\s<>"\)]*)?\'
+            url_pattern = r"https?://[^\s<>\"\)]+\.(?:png|jpg|jpeg|gif|webp)(?:\?[^\s<>\"\)]*)?"
             urls = re.findall(url_pattern, answer, re.IGNORECASE)
             if not urls:
-                urls = re.findall(r\'https?://[^\s<>"\)]+\', answer)
+                urls = re.findall(r"https?://[^\s<>\"\)]+", answer)
             
             if urls:
-                image_url = urls[0].strip().rstrip(\').>\')
+                image_url = urls[0].strip().rstrip(").>")
                 await update.message.reply_photo(photo=image_url, caption="تصویر با موفقیت ساخته شد ✅")
             else:
                 await update.message.reply_text(f"🖼 پاسخِ {IMAGE_MODEL}:\n\n{answer}")
