@@ -1,26 +1,23 @@
 import os
-import logging
 import httpx
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (Application, CommandHandler, CallbackQueryHandler, 
                           MessageHandler, ContextTypes, filters, ConversationHandler)
 
 # --- کانفیگ ---
-# یادت نره اینا رو توی محیط سیستمت ست کنی!
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CLEANAPIS_API_KEY = os.getenv("CLEANAPIS_API_KEY")
 CLEANAPIS_BASE_URL = "https://cleanapis.com"
 DEFAULT_MODEL = "gpt-5.6-luna"
-IMAGE_MODEL = "claude-opus-5.5" # مدل پیش‌فرض برای بخش تصویر
+IMAGE_MODEL = "claude-opus-5.5" # مدل تصویرساز
 
-# وضعیت‌ها برای ConversationHandler
+# وضعیت‌ها
 CHOOSING, GENERATING_IMAGE = range(2)
 
-# --- پیام‌های ثابت ---
+# --- پیام‌ها ---
 WELCOME_MESSAGE = "سلام دوست عزیز، چطور می‌تونم کمکت کنم؟\n\n✨ به دنیای DEX خوش آمدید"
-IMAGE_MODE_MESSAGE = f"🎨 حالت ساخت تصویر فعال شد!\n(مدلِ متفکر: {IMAGE_MODEL})\nلطفاً توصیفِ تصویرِ مورد نظرت رو بفرست."
+IMAGE_MODE_MESSAGE = f"🎨 حالت ساخت تصویر فعال شد!\n(مدلِ متفکر: {IMAGE_MODEL})\nلطفاً توصیفِ دقیق تصویرت رو بفرست تا جادو کنم!"
 
-# --- توابع رابط کاربری ---
 def get_main_menu():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("⚪ اطلاعات کاربر", callback_data="user_info")],
@@ -36,8 +33,7 @@ def get_services_menu():
 
 # --- هندلرها ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if 'model' not in context.user_data: 
-        context.user_data['model'] = DEFAULT_MODEL
+    if 'model' not in context.user_data: context.user_data['model'] = DEFAULT_MODEL
     await update.message.reply_text(WELCOME_MESSAGE, reply_markup=get_main_menu())
     return CHOOSING
 
@@ -76,23 +72,33 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = update.message.text
-    await update.message.reply_text(f"🚀 در حال پردازشِ تصویر با مدل {IMAGE_MODEL}...\n\nپرامپت: '{prompt}'")
+    status_msg = await update.message.reply_text(f"⏳ دارم با قدرت {IMAGE_MODEL} تصویر رو می‌سازم... لطفاً کمی صبر کن!")
     
-    # اینجا درخواستِ تصویرسازی با مدل انتخابی فرستاده میشه
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
-            # در اینجا از مدلِ خواسته شده (IMAGE_MODEL) استفاده می‌کنیم
-            r = await client.post(f"{CLEANAPIS_BASE_URL}/v1/chat/completions", 
-                                  headers={"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"},
-                                  json={"model": IMAGE_MODEL, 
-                                        "messages": [{"role": "system", "content": "You are an artist assistant by DEX."}, 
-                                                     {"role": "user", "content": f"Generate an image based on: {prompt}"}]})
+            # استفاده از اندپوینت واقعی تصویرسازی
+            r = await client.post(
+                f"{CLEANAPIS_BASE_URL}/v1/images/generations", 
+                headers={"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"},
+                json={
+                    "model": IMAGE_MODEL,
+                    "prompt": prompt,
+                    "n": 1,
+                    "size": "1024x1024"
+                }
+            )
             
-            # در دنیای واقعی، اینجا باید پاسخِ API رو هندل کنی (مثلاً دریافتِ URL عکس)
-            # فعلاً یک پیام تأیید می‌فرستیم
-            await update.message.reply_text("✅ درخواست ثبت شد. (در حال پیاده‌سازی بخش نمایش تصویر...)")
+            # بررسی پاسخ
+            if r.status_code == 200:
+                data = r.json()
+                image_url = data['data'][0]['url']
+                await status_msg.delete() # پاک کردن پیامِ در حال انتظار
+                await update.message.reply_photo(photo=image_url, caption=f"این هم از اسبِ بخار‌آلودِ تو دکستر! 🐎💨\n\nپرامپت: {prompt}")
+            else:
+                await status_msg.edit_text("❌ متأسفانه در تولید تصویر خطایی رخ داد. شاید مدلِ انتخابی برای تصویرساز مناسب نباشه؟")
+                
     except Exception as e:
-        await update.message.reply_text(f"خطایی پیش اومد: {str(e)}")
+        await status_msg.edit_text(f"❌ خطای سیستم: {str(e)}")
         
     return GENERATING_IMAGE
 
@@ -104,14 +110,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                               json={"model": context.user_data.get('model', DEFAULT_MODEL), 
                                     "messages": [{"role": "system", "content": "You are a helpful assistant developed by DEX."}, {"role": "user", "content": text}]})
         
-        # پاکسازی پاسخ از برندهای غیر DEX
         answer = r.json()["choices"][0]["message"]["content"]
         answer = answer.replace("OpenAI", "DEX").replace("Google", "DEX").replace("Anthropic", "DEX")
-        
         await update.message.reply_text(answer, parse_mode="Markdown")
     return CHOOSING
 
-# --- اجرای ربات ---
 def main():
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     
@@ -125,9 +128,8 @@ def main():
     )
     
     app.add_handler(conv_handler)
-    print("DEX Bot is running... 🚀")
+    print("DEX Bot 2.0 (Real Image Engine) is running... 🚀")
     app.run_polling()
 
 if __name__ == "__main__":
     main()
-    
