@@ -1,7 +1,7 @@
 import os
 import httpx
 import re
-import io # این همان قطعه‌ی گمشده‌ی پازل بود!
+import io
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (Application, CommandHandler, CallbackQueryHandler, 
                           MessageHandler, ContextTypes, filters, ConversationHandler)
@@ -15,7 +15,7 @@ IMAGE_MODEL = "claude-opus-5.5"
 
 CHOOSING, GENERATING_IMAGE = range(2)
 
-# --- پیام‌های اصلی ---
+# --- پیام‌های اصلی (تغییر ناپذیر) ---
 WELCOME_MESSAGE = "سلام دوست عزیز، چطور می‌تونم کمکت کنم؟\n\n✨ به دنیای DEX خوش آمدید"
 IMAGE_MODE_MESSAGE = f"🎨 حالت ساخت تصویر با مدلِ {IMAGE_MODEL} فعال شد!\nتوصیفِ تصویرت رو بفرست تا برات خلقش کنم."
 
@@ -83,8 +83,8 @@ async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
                 json={
                     "model": IMAGE_MODEL,
                     "messages": [
-                        {"role": "system", "content": "You are an image URL generator. ONLY return the final URL string for the image. Do NOT write any sentences, do NOT use markdown brackets, do NOT add text."},
-                        {"role": "user", "content": f"Generate a URL for: {prompt}. Append width=1024&height=1024&nologo=true to the URL."}
+                        {"role": "system", "content": "You are a professional image engineering assistant. Your ONLY task is to convert the user's prompt into a clean URL for 'https://image.pollinations.ai/prompt/'. URL-encode the prompt (convert spaces to %20). Do not write sentences. Output ONLY the URL followed by '?width=1024&height=1024&nologo=true'. No markdown, no extra text."},
+                        {"role": "user", "content": prompt}
                     ]
                 }
             )
@@ -95,13 +95,12 @@ async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
             
             if url_match:
                 image_url = url_match.group(0)
-                # دانلود تصویر توسط خودِ ربات
                 async with httpx.AsyncClient(timeout=30.0) as img_client:
                     img_response = await img_client.get(image_url)
                     if img_response.status_code == 200:
                         photo_bytes = io.BytesIO(img_response.content)
                         photo_bytes.name = "image.png"
-                        await update.message.reply_photo(photo=photo_bytes)
+                        await update.message.reply_photo(photo=photo_bytes, caption="عکس ساخته شد")
                     else:
                         await update.message.reply_text(f"❌ سرور تصویر پاسخ نداد (کد {img_response.status_code})")
             else:
