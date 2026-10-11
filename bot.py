@@ -4,15 +4,13 @@ import httpx
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, ContextTypes, filters
 
-# تنظیمات اولیه
+# --- تنظیمات ---
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CLEANAPIS_API_KEY = os.getenv("CLEANAPIS_API_KEY", "YOUR_KEY_HERE")
 CLEANAPIS_BASE_URL = "https://cleanapis.com"
 DEFAULT_MODEL = "gpt-5.6-luna"
 MAIN_TEXT = "سلام دوست عزیز، چطور می‌تونم کمکت کنم؟"
 
-# لیست مدل‌ها و نگاشت ایموجی‌ها
-# خیلی راحت میتونی اینجا ایموجی هر مدل رو عوض کنی
 MODEL_EMOJIS = {
     "gpt-5.6-luna": "🌙",
     "claude-opus-5.5": "🧠",
@@ -20,13 +18,19 @@ MODEL_EMOJIS = {
     "gpt-5.5-pro": "🚀",
     "claude-fable-5": "📖"
 }
-
-# لیست مدل‌ها برای منو
 MODELS = list(MODEL_EMOJIS.keys())
 
 logging.basicConfig(level=logging.INFO)
 
-# --- منوهای شیشه‌ای ---
+# --- توابع کمکی ---
+
+def is_identity_query(text):
+    """بررسی اینکه آیا کاربر سوال هویتی می‌پرسد"""
+    keywords = ["سازنده", "کی ساخته", "خالق", "owner", "creator", "who created", "who made"]
+    text_lower = text.lower()
+    return any(keyword in text_lower for keyword in keywords)
+
+# --- منوها ---
 
 def get_main_menu():
     return InlineKeyboardMarkup([
@@ -44,12 +48,9 @@ def get_services_menu():
 def get_model_menu(current_model):
     buttons = []
     for model in MODELS:
-        # دریافت ایموجی از دیکشنری (اگر نبود، پیش‌فرض ربات 🤖)
         emoji = MODEL_EMOJIS.get(model, "🤖")
-        # نمایش ایموجی در متن دکمه
         text = f"{emoji} {model.upper()} {'✅' if current_model == model else ''}"
         buttons.append([InlineKeyboardButton(text, callback_data=f"set_{model}")])
-    
     buttons.append([InlineKeyboardButton("🔙 بازگشت به خدمات", callback_data="more_services")])
     return InlineKeyboardMarkup(buttons)
 
@@ -91,17 +92,24 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "img_soon":
         await query.answer("به زودی اضافه می‌شود!", show_alert=True)
 
-# --- هندلر چت ---
+# --- منطق اصلی ---
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_text = update.message.text
+    
+    # 1. لایه امنیتی هویتی (Intercept)
+    if is_identity_query(user_text):
+        await update.message.reply_text("DEX")
+        return
+
+    # 2. لایه پردازش هوشمند
     model = context.user_data.get('model', DEFAULT_MODEL)
-    wait_msg = await update.message.reply_text(f"⏳ پردازش با ({model})...")
+    wait_msg = await update.message.reply_text("⏳ درحال پردازش...")
     
     system_instruction = """You are a helpful assistant. Always respond in Persian.
 Rules:
-1. If asked 'Who created you?' (or similar variations), answer ONLY: 'DEX'.
-2. If greeted (e.g., 'سلام'), answer ONLY: 'سلام. چطور می‌توانم کمکت کنم؟'.
-3. When providing code/tutorials:
+1. If greeted (e.g., 'سلام'), answer ONLY: 'سلام. چطور می‌توانم کمکت کنم؟'.
+2. When providing code/tutorials:
    - Always wrap code snippets in triple backticks (
 ```code```).
    - Use Markdown blockquotes (>) around the text explanation."""
@@ -112,7 +120,7 @@ Rules:
             "model": model, 
             "messages": [
                 {"role": "system", "content": system_instruction},
-                {"role": "user", "content": update.message.text}
+                {"role": "user", "content": user_text}
             ]
         }
         
