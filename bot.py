@@ -12,6 +12,16 @@ CLEANAPIS_BASE_URL = "https://cleanapis.com"
 DEFAULT_MODEL = "gpt-5.6-luna"
 IMAGE_MODEL = "claude-opus-5.5" 
 
+# لیست مدل‌ها همراه با ایموجی
+MODELS_WITH_EMOJI = {
+    "gpt-5.6-luna": "🌙",
+    "claude-opus-5.5": "🎭",
+    "gpt-5.5": "⚡",
+    "gpt-5.5-pro": "🚀",
+    "claude-fable-5": "📖",
+    "claude-fable-5.1": "✨"
+}
+
 # وضعیت‌ها
 CHOOSING, GENERATING_IMAGE = range(2)
 
@@ -28,7 +38,7 @@ def get_main_menu():
 def get_services_menu():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🎨 ساخت تصویر", callback_data="gen_mode")],
-        [InlineKeyboardButton("⚙️ گزینش مدل", callback_data="change_model")],
+        [InlineKeyboardButton("🔄 تغییر مدل", callback_data="change_model")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")]
     ])
 
@@ -62,14 +72,15 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return CHOOSING
         
     elif query.data == "change_model":
-        buttons = [[InlineKeyboardButton(m, callback_data=f"set_{m}")] for m in ["gpt-5.6-luna", "claude-opus-5.5", "gpt-5.5"]]
+        buttons = [[InlineKeyboardButton(f"{emoji} {model}", callback_data=f"set_{model}")] for model, emoji in MODELS_WITH_EMOJI.items()]
         buttons.append([InlineKeyboardButton("🔙 بازگشت", callback_data="more_services")])
-        await query.edit_message_text("یک مدل برگزین:", reply_markup=InlineKeyboardMarkup(buttons))
+        await query.edit_message_text("🔄 یک مدل برگزین:", reply_markup=InlineKeyboardMarkup(buttons))
         return CHOOSING
         
     elif query.data.startswith("set_"):
         context.user_data["model"] = query.data.replace("set_", "")
-        await query.edit_message_text("مدل با موفقیت دگرگون شد!", reply_markup=get_main_menu())
+        selected_emoji = MODELS_WITH_EMOJI.get(context.user_data["model"], "✅")
+        await query.edit_message_text(f"{selected_emoji} مدل با موفقیت به `{context.user_data[\'model\']}` دگرگون شد!", reply_markup=get_main_menu(), parse_mode="Markdown")
         return CHOOSING
 
 async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
