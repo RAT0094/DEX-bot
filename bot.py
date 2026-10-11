@@ -2,6 +2,7 @@ import os
 import httpx
 import re
 import io
+import time
 import urllib.parse
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (Application, CommandHandler, CallbackQueryHandler, 
@@ -72,25 +73,32 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("مدل با موفقیت دگرگون شد!", reply_markup=get_main_menu())
         return CHOOSING
 
-# --- هندلر تصویرِ تقویت‌شده ---
+# --- هندلر تصویرِ ضدِ کش (Anti-Cache) ---
 async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = update.message.text
-    status_msg = await update.message.reply_text("⏳ در حال جادو...")
+    status_msg = await update.message.reply_text("⏳ در حال تولید یک تصویرِ کاملاً جدید...")
     
     try:
-        # تقویتِ پرامپت برای جلوگیری از رفتارهای عجیب و خودشیفتگیِ مدل
-        enhanced_prompt = f"{prompt}, photorealistic, high quality, 8k, detailed, professional photography"
+        # 1. تولید seed تصادفی برای شکستنِ کشِ سرور
+        unique_seed = int(time.time())
+        
+        # 2. تقویتِ پرامپت برای دقتِ بالاتر
+        enhanced_prompt = f"{prompt}, highly detailed, unique digital art, 8k, photorealistic"
         encoded_prompt = urllib.parse.quote(enhanced_prompt)
-        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true&seed=42"
+        
+        # 3. ساخت URL با پارامترهای اجبار‌کننده‌ی بازتولید
+        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true&seed={unique_seed}"
         
         async with httpx.AsyncClient(timeout=45.0) as img_client:
-            img_response = await img_client.get(image_url)
+            # 4. درخواست با هدرِ غیرکش‌شونده
+            img_response = await img_client.get(image_url, headers={"Cache-Control": "no-cache"})
+            
             if img_response.status_code == 200:
                 photo_bytes = io.BytesIO(img_response.content)
                 photo_bytes.name = "image.png"
                 await update.message.reply_photo(photo=photo_bytes, caption="عکس ساخته شد")
             else:
-                await update.message.reply_text(f"❌ سرور تصویر پاسخ نداد (کد {img_response.status_code})")
+                await update.message.reply_text(f"❌ خطای سرور تصویر: کد {img_response.status_code}")
         
         await status_msg.delete()
                 
@@ -125,9 +133,9 @@ def main():
     )
     
     app.add_handler(conv_handler)
-    print("DEX Bot (Enhanced Image Delivery Mode) is running... 🚀")
+    print("DEX Bot (Anti-Cache, Forced Generation Mode) is running... 🚀")
     app.run_polling()
 
 if __name__ == "__main__":
     main()
-      
+  
