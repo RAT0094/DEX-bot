@@ -9,25 +9,26 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CLEANAPIS_API_KEY = os.getenv("CLEANAPIS_API_KEY")
 CLEANAPIS_BASE_URL = "https://cleanapis.com"
 DEFAULT_MODEL = "gpt-5.6-luna"
-IMAGE_MODEL = "claude-opus-5.5" # مدل تصویرساز
+# مدلِ انتخابی برای تصویرساز
+IMAGE_MODEL = "dall-e-3" 
 
-# وضعیت‌ها
+# وضعیت‌ها برای ConversationHandler
 CHOOSING, GENERATING_IMAGE = range(2)
 
 # --- پیام‌ها ---
-WELCOME_MESSAGE = "سلام دوست عزیز، چطور می‌تونم کمکت کنم؟\n\n✨ به دنیای DEX خوش آمدید"
-IMAGE_MODE_MESSAGE = f"🎨 حالت ساخت تصویر فعال شد!\n(مدلِ متفکر: {IMAGE_MODEL})\nلطفاً توصیفِ دقیق تصویرت رو بفرست تا جادو کنم!"
+WELCOME_MESSAGE = "سلام دوستِ نابغه، چطور می‌تونم امروز کمکت کنم؟\n\n✨ به دنیای DEX خوش آمدید"
+IMAGE_MODE_MESSAGE = f"🎨 حالتِ ساخت تصویر فعال شد!\nتوصیفِ دقیقِ تصویرت رو بفرست تا با قدرتِ تمام برات خلقش کنم."
 
 def get_main_menu():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("⚪ اطلاعات کاربر", callback_data="user_info")],
+        [InlineKeyboardButton("⚪ داده‌های کاربر", callback_data="user_info")],
         [InlineKeyboardButton("🟢 ابزارها", callback_data="more_services")]
     ])
 
 def get_services_menu():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🎨 ساخت تصویر", callback_data="gen_mode")],
-        [InlineKeyboardButton("⚙️ تغییر مدل", callback_data="change_model")],
+        [InlineKeyboardButton("⚙️ گزینش مدل", callback_data="change_model")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")]
     ])
 
@@ -43,7 +44,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if query.data == "user_info":
         user = update.effective_user
-        info = f"👤 اطلاعات کاربر\nنام: {user.first_name}\nآیدی: `{user.id}`\nمدل فعال: `{context.user_data.get('model', DEFAULT_MODEL)}`"
+        info = f"👤 داده‌های کاربر\nنام: {user.first_name}\nشناسه: `{user.id}`\nمدل فعال: `{context.user_data.get('model', DEFAULT_MODEL)}`"
         await query.edit_message_text(info, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")]]), parse_mode="Markdown")
         return CHOOSING
         
@@ -67,16 +68,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     elif query.data.startswith("set_"):
         context.user_data['model'] = query.data.replace("set_", "")
-        await query.edit_message_text("مدل با موفقیت تغییر کرد!", reply_markup=get_main_menu())
+        await query.edit_message_text("مدل با موفقیت دگرگون شد!", reply_markup=get_main_menu())
         return CHOOSING
 
 async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = update.message.text
-    status_msg = await update.message.reply_text(f"⏳ دارم با قدرت {IMAGE_MODEL} تصویر رو می‌سازم... لطفاً کمی صبر کن!")
+    status_msg = await update.message.reply_text("⏳ دارم تصویر رو با دقتِ بالا خلق می‌کنم...")
     
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
-            # استفاده از اندپوینت واقعی تصویرسازی
+            # اینجا از اندپوینتِ مخصوصِ تصاویر استفاده می‌کنیم
             r = await client.post(
                 f"{CLEANAPIS_BASE_URL}/v1/images/generations", 
                 headers={"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"},
@@ -88,14 +89,13 @@ async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
                 }
             )
             
-            # بررسی پاسخ
             if r.status_code == 200:
                 data = r.json()
                 image_url = data['data'][0]['url']
-                await status_msg.delete() # پاک کردن پیامِ در حال انتظار
-                await update.message.reply_photo(photo=image_url, caption=f"این هم از اسبِ بخار‌آلودِ تو دکستر! 🐎💨\n\nپرامپت: {prompt}")
+                await status_msg.delete()
+                await update.message.reply_photo(photo=image_url, caption=f"این هم از تصویرِ تو دکستر! 🐎💨")
             else:
-                await status_msg.edit_text("❌ متأسفانه در تولید تصویر خطایی رخ داد. شاید مدلِ انتخابی برای تصویرساز مناسب نباشه؟")
+                await status_msg.edit_text("❌ خطا در API تصویرسازی. لطفاً چک کن مدلِ `dall-e-3` روی حسابت فعال باشه.")
                 
     except Exception as e:
         await status_msg.edit_text(f"❌ خطای سیستم: {str(e)}")
@@ -128,7 +128,7 @@ def main():
     )
     
     app.add_handler(conv_handler)
-    print("DEX Bot 2.0 (Real Image Engine) is running... 🚀")
+    print("DEX Bot (Unified Professional Engine) is running... 🚀")
     app.run_polling()
 
 if __name__ == "__main__":
