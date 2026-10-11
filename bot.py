@@ -1,9 +1,12 @@
 import os
 import httpx
 import re
+import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (Application, CommandHandler, CallbackQueryHandler, 
                           MessageHandler, ContextTypes, filters, ConversationHandler)
+
+logging.basicConfig(level=logging.INFO)
 
 # --- کانفیگ ---
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -25,7 +28,7 @@ MODELS_WITH_EMOJI = {
 # وضعیت‌ها
 CHOOSING, GENERATING_IMAGE = range(2)
 
-# --- پیام‌ها - ویرایش شده ---
+# --- پیام‌ها ---
 WELCOME_MESSAGE = "سلام دوست عزیز، چه کمکی از دستم برمی‌آید؟\n\n✨ به دنیای DEX خوش آمدید"
 IMAGE_MODE_MESSAGE = "🎨 حالت ساخت تصویر فعال شد!\nتوصیف تصویرت را بفرست."
 
@@ -44,7 +47,8 @@ def get_services_menu():
 
 # --- هندلرها ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if "model" not in context.user_data: context.user_data["model"] = DEFAULT_MODEL
+    if "model" not in context.user_data: 
+        context.user_data["model"] = DEFAULT_MODEL
     await update.message.reply_text(WELCOME_MESSAGE, reply_markup=get_main_menu())
     return CHOOSING
 
@@ -52,35 +56,47 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    if query.data == "user_info":
-        user = update.effective_user
-        current_model = context.user_data.get("model", DEFAULT_MODEL)
-        info = f"👤 اطلاعات کاربر\nنام: {user.first_name}\nشناسه: `{user.id}`\nمدل فعال: `{current_model}`"
-        await query.edit_message_text(info, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")]]), parse_mode="Markdown")
-        return CHOOSING
-        
-    elif query.data == "more_services":
-        await query.edit_message_text("بخش ابزارهای DEX:", reply_markup=get_services_menu())
-        return CHOOSING
-        
-    elif query.data == "gen_mode":
-        await query.edit_message_text(IMAGE_MODE_MESSAGE, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت به منو", callback_data="back_main")]]))
-        return GENERATING_IMAGE
-        
-    elif query.data == "back_main":
-        await query.edit_message_text(WELCOME_MESSAGE, reply_markup=get_main_menu())
-        return CHOOSING
-        
-    elif query.data == "change_model":
-        buttons = [[InlineKeyboardButton(f"{emoji} {model}", callback_data=f"set_{model}")] for model, emoji in MODELS_WITH_EMOJI.items()]
-        buttons.append([InlineKeyboardButton("🔙 بازگشت", callback_data="more_services")])
-        await query.edit_message_text("🔄 یک مدل برگزین:", reply_markup=InlineKeyboardMarkup(buttons))
-        return CHOOSING
-        
-    elif query.data.startswith("set_"):
-        context.user_data["model"] = query.data.replace("set_", "")
-        selected_emoji = MODELS_WITH_EMOJI.get(context.user_data["model"], "✅")
-        await query.edit_message_text(f"{selected_emoji} مدل با موفقیت به `{context.user_data[\'model\']}` دگرگون شد!", reply_markup=get_main_menu(), parse_mode="Markdown")
+    try:
+        if query.data == "user_info":
+            user = update.effective_user
+            current_model = context.user_data.get("model", DEFAULT_MODEL)
+            # بدون Markdown برای جلوگیری از کرش
+            info = f"👤 اطلاعات کاربر\nنام: {user.first_name}\nشناسه: {user.id}\nمدل فعال: {current_model}"
+            await query.edit_message_text(info, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")]]))
+            return CHOOSING
+            
+        elif query.data == "more_services":
+            await query.edit_message_text("بخش ابزارهای DEX:", reply_markup=get_services_menu())
+            return CHOOSING
+            
+        elif query.data == "gen_mode":
+            await query.edit_message_text(IMAGE_MODE_MESSAGE, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت به منو", callback_data="back_main")]]))
+            return GENERATING_IMAGE
+            
+        elif query.data == "back_main":
+            await query.edit_message_text(WELCOME_MESSAGE, reply_markup=get_main_menu())
+            return CHOOSING
+            
+        elif query.data == "change_model":
+            buttons = [[InlineKeyboardButton(f"{emoji} {model}", callback_data=f"set_{model}")] for model, emoji in MODELS_WITH_EMOJI.items()]
+            buttons.append([InlineKeyboardButton("🔙 بازگشت", callback_data="more_services")])
+            await query.edit_message_text("🔄 یک مدل برگزین:", reply_markup=InlineKeyboardMarkup(buttons))
+            return CHOOSING
+            
+        elif query.data.startswith("set_"):
+            # فیکس اصلی کرش: عدم استفاده از بک‌اسلش در f-string
+            new_model = query.data[4:]  # به جای replace
+            context.user_data["model"] = new_model
+            selected_emoji = MODELS_WITH_EMOJI.get(new_model, "✅")
+            text = f"{selected_emoji} مدل با موفقیت به {new_model} دگرگون شد!"
+            await query.edit_message_text(text, reply_markup=get_main_menu())
+            return CHOOSING
+    except Exception as e:
+        logging.error(f"Error in button_handler: {e}")
+        try:
+            await query.edit_message_text("❌ خطایی رخ داد، دوباره /start بزن", reply_markup=get_main_menu())
+        except:
+            pass
         return CHOOSING
 
 async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -100,7 +116,7 @@ async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
                     ]
                 }
             )
-            
+            r.raise_for_status()
             data = r.json()
             answer = data["choices"][0]["message"]["content"]
             
@@ -121,24 +137,44 @@ async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
                 pass
                 
     except Exception as e:
-        await status_msg.edit_text(f"❌ خطای سیستم: {str(e)}")
+        logging.error(f"Image error: {e}")
+        try:
+            await status_msg.edit_text(f"❌ خطای سیستم: {str(e)}")
+        except:
+            await update.message.reply_text(f"❌ خطای سیستم: {str(e)}")
         
     return GENERATING_IMAGE
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        r = await client.post(f"{CLEANAPIS_BASE_URL}/v1/chat/completions", 
-                              headers={"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"},
-                              json={"model": context.user_data.get("model", DEFAULT_MODEL), 
-                                    "messages": [{"role": "system", "content": "You are a helpful assistant developed by DEX."}, {"role": "user", "content": text}]})
-        
-        answer = r.json()["choices"][0]["message"]["content"]
-        answer = answer.replace("OpenAI", "DEX").replace("Google", "DEX").replace("Anthropic", "DEX")
-        await update.message.reply_text(answer, parse_mode="Markdown")
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            r = await client.post(f"{CLEANAPIS_BASE_URL}/v1/chat/completions", 
+                                  headers={"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"},
+                                  json={"model": context.user_data.get("model", DEFAULT_MODEL), 
+                                        "messages": [{"role": "system", "content": "You are a helpful assistant developed by DEX."}, {"role": "user", "content": text}]})
+            
+            r.raise_for_status()
+            data = r.json()
+            answer = data["choices"][0]["message"]["content"]
+            answer = answer.replace("OpenAI", "DEX").replace("Google", "DEX").replace("Anthropic", "DEX")
+            
+            # جلوگیری از کرش Markdown
+            try:
+                await update.message.reply_text(answer, parse_mode="Markdown")
+            except:
+                await update.message.reply_text(answer)
+
+    except Exception as e:
+        logging.error(f"Message error: {e}")
+        await update.message.reply_text(f"❌ خطا در ارتباط با سرور: {str(e)}")
     return CHOOSING
 
 def main():
+    if not TELEGRAM_BOT_TOKEN or not CLEANAPIS_API_KEY:
+        print("❌ TELEGRAM_BOT_TOKEN یا CLEANAPIS_API_KEY تنظیم نشده!")
+        return
+        
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     
     conv_handler = ConversationHandler(
@@ -148,11 +184,12 @@ def main():
             GENERATING_IMAGE: [CallbackQueryHandler(button_handler), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_image_prompt)],
         },
         fallbacks=[CommandHandler("start", start)],
+        allow_reentry=True
     )
     
     app.add_handler(conv_handler)
-    print("DEX Bot (Opus 5.5 Edition) is running... 🚀")
-    app.run_polling()
+    print("DEX Bot (Fixed Edition) is running... 🚀")
+    app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
     main()
