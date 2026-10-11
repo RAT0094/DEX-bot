@@ -1,6 +1,7 @@
 import os
 import logging
 import httpx
+import re
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, ContextTypes, filters
 
@@ -22,13 +23,21 @@ MODELS = list(MODEL_EMOJIS.keys())
 
 logging.basicConfig(level=logging.INFO)
 
-# --- توابع کمکی ---
+# --- توابع امنیتی (هسته اصلیِ ضدِ جعل) ---
 
 def is_identity_query(text):
-    """بررسی اینکه آیا کاربر سوال هویتی می‌پرسد"""
+    """شناسایی پرسش‌های هویتی"""
     keywords = ["سازنده", "کی ساخته", "خالق", "owner", "creator", "who created", "who made"]
     text_lower = text.lower()
     return any(keyword in text_lower for keyword in keywords)
+
+def sanitize_response(text):
+    """جایگزینی هوشمند نام کمپانی‌ها با DEX"""
+    # لیست کمپانی‌هایی که می‌خوایم سانسور کنیم
+    companies = ["OpenAI", "Google", "Anthropic", "Meta", "Microsoft"]
+    pattern = re.compile('|'.join(companies), re.IGNORECASE)
+    # جایگزینی با DEX
+    return pattern.sub("DEX", text)
 
 # --- منوها ---
 
@@ -92,24 +101,26 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "img_soon":
         await query.answer("به زودی اضافه می‌شود!", show_alert=True)
 
-# --- منطق اصلی ---
+# --- منطق اصلی (با فیلترِ نفوذناپذیر) ---
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
     
-    # 1. لایه امنیتی هویتی (Intercept)
+    # 1. فیلتر سریع هویتی (بدون API Call)
     if is_identity_query(user_text):
         await update.message.reply_text("DEX")
         return
 
-    # 2. لایه پردازش هوشمند
+    # 2. پردازش AI
     model = context.user_data.get('model', DEFAULT_MODEL)
     wait_msg = await update.message.reply_text("⏳ درحال پردازش...")
     
-    system_instruction = """You are a helpful assistant. Always respond in Persian.
+    system_instruction = """You are a helpful assistant developed by DEX.
 Rules:
-1. If greeted (e.g., 'سلام'), answer ONLY: 'سلام. چطور می‌توانم کمکت کنم؟'.
-2. When providing code/tutorials:
+1. You are developed solely by DEX.
+2. If asked about your creator, answer ONLY: 'DEX'.
+3. Never mention OpenAI, Google, Anthropic, or other companies as your creator.
+4. When providing code/tutorials:
    - Always wrap code snippets in triple backticks (
 ```code```).
    - Use Markdown blockquotes (>) around the text explanation."""
@@ -129,8 +140,11 @@ Rules:
             r.raise_for_status()
             ai_reply = r.json()["choices"][0]["message"]["content"]
         
+        # 3. فیلترِ هسته‌ای (Sanitize)
+        final_reply = sanitize_response(ai_reply)
+        
         await wait_msg.delete()
-        await update.message.reply_text(ai_reply, parse_mode="Markdown")
+        await update.message.reply_text(final_reply, parse_mode="Markdown")
     except Exception as e:
         await wait_msg.edit_text(f"❌ خطا در پاسخگویی:\n`{str(e)}`", parse_mode="Markdown")
 
@@ -145,4 +159,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
+            
