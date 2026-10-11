@@ -1,6 +1,7 @@
 import os
 import httpx
 import re
+import io # این همان قطعه‌ی گمشده‌ی پازل بود!
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (Application, CommandHandler, CallbackQueryHandler, 
                           MessageHandler, ContextTypes, filters, ConversationHandler)
@@ -76,7 +77,6 @@ async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
-            # اینجا مدل را مجبور می‌کنیم فقط لینکِ خالص برگرداند
             r = await client.post(
                 f"{CLEANAPIS_BASE_URL}/v1/chat/completions", 
                 headers={"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"},
@@ -91,15 +91,21 @@ async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
             
             data = r.json()
             answer = data["choices"][0]["message"]["content"].strip()
-            
-            # اصلاحِ رِجکس: شکارِ هر لینکی که با http شروع می‌شود
             url_match = re.search(r'https?://[^\s<>"\)]+', answer)
             
             if url_match:
                 image_url = url_match.group(0)
-                await update.message.reply_photo(photo=image_url) # بدون کپشن!
+                # دانلود تصویر توسط خودِ ربات
+                async with httpx.AsyncClient(timeout=30.0) as img_client:
+                    img_response = await img_client.get(image_url)
+                    if img_response.status_code == 200:
+                        photo_bytes = io.BytesIO(img_response.content)
+                        photo_bytes.name = "image.png"
+                        await update.message.reply_photo(photo=photo_bytes)
+                    else:
+                        await update.message.reply_text(f"❌ سرور تصویر پاسخ نداد (کد {img_response.status_code})")
             else:
-                await update.message.reply_text(f"❌ لینک معتبری دریافت نشد. خروجی مدل: {answer}")
+                await update.message.reply_text(f"❌ لینک معتبری دریافت نشد: {answer}")
             
             await status_msg.delete()
                 
@@ -134,9 +140,9 @@ def main():
     )
     
     app.add_handler(conv_handler)
-    print("DEX Bot (Pure Image Mode) is running... 🚀")
+    print("DEX Bot (Robust Image Delivery Mode) is running... 🚀")
     app.run_polling()
 
 if __name__ == "__main__":
     main()
-          
+  
