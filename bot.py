@@ -18,7 +18,7 @@ DEFAULT_MODEL = "gpt-5.6-luna"
 IMAGE_MODEL = "claude-opus-5.5" 
 
 # --- تنظیم ادمین و مالک ---
-OWNER_ID = 8163337709  # مالک اصلی
+OWNER_ID = 8163337709
 ADMIN_IDS = {OWNER_ID}
 admin_env = os.getenv("ADMIN_IDS", os.getenv("ADMIN_ID", ""))
 if admin_env:
@@ -28,6 +28,9 @@ if admin_env:
             ADMIN_IDS.add(int(x))
 
 DB_PATH = "bot_memory.db"
+
+def now_str():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 # --- دیتابیس دائمی ---
 def init_db():
@@ -57,7 +60,7 @@ def save_user(user):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute("INSERT OR REPLACE INTO users (user_id, name, username, last_seen) VALUES (?, ?, ?, ?)",
-                (user.id, user.first_name, user.username or "", datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                (user.id, user.first_name, user.username or "", now_str()))
     conn.commit()
     conn.close()
 
@@ -65,7 +68,7 @@ def save_message(user_id, role, text):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute("INSERT INTO messages (user_id, role, text, time) VALUES (?, ?, ?, ?)",
-                (user_id, role, text, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                (user_id, role, text, now_str()))
     conn.commit()
     conn.close()
 
@@ -110,13 +113,14 @@ async def notify_admins(context: ContextTypes.DEFAULT_TYPE, user, user_text: str
     if is_admin(user.id):
         return
     username = f"@{user.username}" if user.username else "بدون یوزرنیم"
+    current_time = now_str()
     log_text = (
         f"📩 **پیام جدید**\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"👤 نام: `{user.first_name}`\n"
         f"🆔 آیدی: `{user.id}`\n"
         f"🔗 یوزرنیم: {username}\n"
-        f"⏰ زمان: {datetime.now().strftime(\'%Y-%m-%d %H:%M:%S\')}\n"
+        f"⏰ زمان: {current_time}\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"👤 **پیام کاربر:**\n{user_text[:1000]}\n"
     )
@@ -244,7 +248,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(text, reply_markup=get_main_menu(query.from_user.id))
             return CHOOSING
 
-        # ===== پنل ادمین - فقط مالک 8163337709 =====
         elif query.data == "admin_panel":
             if not is_admin(query.from_user.id):
                 await query.answer("⛔ دسترسی ندارید", show_alert=True)
