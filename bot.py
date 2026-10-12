@@ -382,7 +382,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ خطا در ارتباط با سرور: {str(e)}")
     return CHOOSING
 
-# --- بخش رفع مشکل Railway ---
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logging.error(f"Error: {context.error}")
 
@@ -397,6 +396,11 @@ def main():
         return
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).post_init(post_init).build()
     conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", start), CommandHandler("admin", admin_command)],
+        entry_points=[
+            CommandHandler("start", start),
+            CommandHandler("admin", admin_command)
+        ],
         states={
-            CHOOSING: [CallbackQueryHandler(button_handler), MessageHandler(filters.TEXT &
+            CHOOSING: [
+                CallbackQueryHandler(button_handler),
+         
