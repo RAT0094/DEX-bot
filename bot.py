@@ -398,4 +398,5 @@ def main():
         allow_reentry=True
     )
     app.add_handler(conv_handler)
-    app.add_handler(CommandHandle
+    print("🤖 ربات روشن شد...")
+ 
