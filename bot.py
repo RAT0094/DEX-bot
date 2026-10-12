@@ -133,7 +133,7 @@ def is_image_request(text: str) -> bool:
     return any(k in t for k in IMAGE_KEYWORDS)
 
 def extract_image_urls(text: str):
-    return re.findall(r"https?://[^\s\)\]\"]+", text)
+    return re.findall(r\'https?://[^\s\)\]]+\', text)
 
 async def send_image_url_as_photo(update, url, caption="🖼️ تصویر با موفقیت ساخته شد ✅✨"):
     try:
@@ -308,7 +308,7 @@ async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
             answer = data["choices"][0]["message"]["content"]
             logging.info(f"Image chat response: {answer}")
             urls = extract_image_urls(answer)
-            b64_match = re.search(r"data:image\/[^;]+;base64,([A-Za-z0-9+/=]+)", answer)
+            b64_match = re.search(r\'data:image\/[^;]+;base64,([A-Za-z0-9+/=]+)\', answer)
             if b64_match:
                 image_bytes = base64.b64decode(b64_match.group(1))
                 save_message(user.id, "assistant", "[IMAGE_SENT_B64]")
@@ -365,7 +365,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if image_urls:
                 for url in image_urls:
                     await send_image_url_as_photo(update, url, caption="🖼️ تصویر با موفقیت ساخته شد ✅✨")
-                text_without_url = re.sub(r"https?://[^\s\)\]\"]+", "", answer).strip()
+                text_without_url = re.sub(r\'https?://[^\s\)\]]+\', "", answer).strip()
                 if text_without_url:
                     try: await update.message.reply_text(text_without_url, parse_mode="Markdown")
                     except: await update.message.reply_text(text_without_url)
@@ -388,7 +388,14 @@ def main():
         print("❌ TELEGRAM_BOT_TOKEN یا CLEANAPIS_API_KEY تنظیم نشده!")
         return
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-    conv_handler = ConversationHandler(entry_points=[CommandHandler("start", start), CommandHandler("admin", admin_command)], states={CHOOSING: [CallbackQueryHandler(button_handler), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)], GENERATING_IMAGE: [CallbackQueryHandler(button_handler), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_image_prompt)]}, fallbacks=[CommandHandler("start", start)], allow_reentry=True)
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler("start", start), CommandHandler("admin", admin_command)],
+        states={
+            CHOOSING: [CallbackQueryHandler(button_handler), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)],
+            GENERATING_IMAGE: [CallbackQueryHandler(button_handler), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_image_prompt)]
+        },
+        fallbacks=[CommandHandler("start", start)],
+        allow_reentry=True
+    )
     app.add_handler(conv_handler)
-    app.add_handler(CommandHandler("admin", admin_command))
-    print(f"DEX Bot running... Owner: {O
+    app.add_handler(Comman
