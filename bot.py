@@ -6,10 +6,7 @@ import sqlite3
 import base64
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, CopyTextButton
-from telegram.ext import (
-    Application, CommandHandler, CallbackQueryHandler,
-    MessageHandler, ContextTypes, filters, ConversationHandler
-)
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, ContextTypes, filters, ConversationHandler
 
 logging.basicConfig(level=logging.INFO)
 
@@ -18,7 +15,6 @@ CLEANAPIS_API_KEY = os.getenv("CLEANAPIS_API_KEY")
 CLEANAPIS_BASE_URL = "https://cleanapis.com"
 DEFAULT_MODEL = "gpt-5.6-luna"
 IMAGE_MODEL = "dall-e-3"
-
 OWNER_ID = 8163337709
 ADMIN_IDS = {OWNER_ID}
 admin_env = os.getenv("ADMIN_IDS", os.getenv("ADMIN_ID", ""))
@@ -27,7 +23,6 @@ if admin_env:
         x = x.strip()
         if x.isdigit():
             ADMIN_IDS.add(int(x))
-
 DB_PATH = "bot_memory.db"
 
 def now_str():
@@ -97,26 +92,12 @@ async def notify_admins(context: ContextTypes.DEFAULT_TYPE, user, user_text: str
         return
     username = f"@{user.username}" if user.username else "بدون یوزرنیم"
     current_time = now_str()
-    log_text = (
-        f"📩 **پیام جدید**\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"👤 نام: `{user.first_name}`\n"
-        f"🆔 آیدی: `{user.id}`\n"
-        f"🔗 یوزرنیم: {username}\n"
-        f"⏰ زمان: {current_time}\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"👤 **پیام کاربر:**\n{user_text[:1000]}\n"
-    )
+    log_text = f"📩 **پیام جدید**\n━━━━━━━━━━━━━━━━━━━━\n👤 نام: `{user.first_name}`\n🆔 آیدی: `{user.id}`\n🔗 یوزرنیم: {username}\n⏰ زمان: {current_time}\n━━━━━━━━━━━━━━━━━━━━\n👤 **پیام کاربر:**\n{user_text[:1000]}\n"
     if bot_answer:
         log_text += f"\n🤖 **پاسخ ربات:**\n{bot_answer[:1000]}"
     for admin_id in ADMIN_IDS:
         try:
-            await context.bot.send_message(
-                chat_id=admin_id,
-                text=log_text,
-                parse_mode="Markdown",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"👁 مشاهده چت کامل {user.first_name}", callback_data=f"admin_view_{user.id}")]])
-            )
+            await context.bot.send_message(chat_id=admin_id, text=log_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"👁 مشاهده چت کامل {user.first_name}", callback_data=f"admin_view_{user.id}")]]))
         except Exception as e:
             logging.error(f"Failed to notify admin {admin_id}: {e}")
 
@@ -125,7 +106,6 @@ CHOOSING, GENERATING_IMAGE = range(2)
 WELCOME_MESSAGE = "سلام دوست عزیز، چه کمکی از دستم برمی‌آید؟\n\n✨ خوش آمدید"
 IMAGE_MODE_MESSAGE = "🎨 حالت ساخت تصویر فعال شد!\nتوصیف تصویرت را بفرست."
 BEAUTIFY_INSTRUCTION = "همیشه این قوانین نگارشی را رعایت کن: 1. در همه‌ی پیام‌ها از ایموجی مرتبط استفاده کن 2. اسم بازی، فیلم، کتاب یا اصطلاحات خاص را حتما با **Bold** نمایش بده. 3. اگر کد می‌دهی حتما داخل بلاک کد قرار بده."
-
 IMAGE_KEYWORDS = ["عکس بساز", "تصویر بساز", "عکس بکش", "تصویر بکش", "عکس درست کن", "تصویر درست کن", "عکسم رو", "پرامپت عکس", "generate image", "create image", "draw image", "make image"]
 
 def is_image_request(text: str) -> bool:
@@ -292,17 +272,7 @@ async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
     try:
         model = context.user_data.get("model", DEFAULT_MODEL)
         async with httpx.AsyncClient(timeout=90.0) as client:
-            r = await client.post(
-                f"{CLEANAPIS_BASE_URL}/v1/chat/completions",
-                headers={"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"},
-                json={
-                    "model": model,
-                    "messages": [
-                        {"role": "system", "content": f"You are Claude Fable 5.1 developed by Anthropic. You are an image generator. {BEAUTIFY_INSTRUCTION} When user asks for image, generate image and return direct image URL."},
-                        {"role": "user", "content": f"این پرامپت را به تصویر تبدیل کن: {prompt}"}
-                    ]
-                }
-            )
+            r = await client.post(f"{CLEANAPIS_BASE_URL}/v1/chat/completions", headers={"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"}, json={"model": model, "messages": [{"role": "system", "content": f"You are Claude Fable 5.1 developed by Anthropic. You are an image generator. {BEAUTIFY_INSTRUCTION} When user asks for image, generate image and return direct image URL."}, {"role": "user", "content": f"این پرامپت را به تصویر تبدیل کن: {prompt}"}]})
             r.raise_for_status()
             data = r.json()
             answer = data["choices"][0]["message"]["content"]
@@ -356,10 +326,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             answer = data["choices"][0]["message"]["content"]
             save_message(user.id, "assistant", answer)
             await notify_admins(context, user, text, answer)
-            try:
-                await status_msg.delete()
-            except:
-                pass
+            try: await status_msg.delete()
+            except: pass
             urls = extract_image_urls(answer)
             image_urls = [u for u in urls if any(x in u.lower() for x in [".png",".jpg",".jpeg",".webp","image","cdn","dall"])]
             if image_urls:
@@ -370,16 +338,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     try: await update.message.reply_text(text_without_url, parse_mode="Markdown")
                     except: await update.message.reply_text(text_without_url)
                 return CHOOSING
-            try:
-                await update.message.reply_text(answer, parse_mode="Markdown")
-            except:
-                await update.message.reply_text(answer)
+            try: await update.message.reply_text(answer, parse_mode="Markdown")
+            except: await update.message.reply_text(answer)
     except Exception as e:
         logging.error(f"Message error: {e}")
-        try:
-            await status_msg.edit_text(f"❌ خطا در ارتباط با سرور: {str(e)}")
-        except:
-            await update.message.reply_text(f"❌ خطا در ارتباط با سرور: {str(e)}")
+        try: await status_msg.edit_text(f"❌ خطا در ارتباط با سرور: {str(e)}")
+        except: await update.message.reply_text(f"❌ خطا در ارتباط با سرور: {str(e)}")
     return CHOOSING
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
@@ -395,12 +359,12 @@ def main():
         print("❌ TELEGRAM_BOT_TOKEN یا CLEANAPIS_API_KEY تنظیم نشده!")
         return
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).post_init(post_init).build()
-    conv_handler = ConversationHandler(
-        entry_points=[
-            CommandHandler("start", start),
-            CommandHandler("admin", admin_command)
-        ],
-        states={
-            CHOOSING: [
-                CallbackQueryHandler(button_handler),
-         
+    conv_handler = ConversationHandler(entry_points=[CommandHandler("start", start), CommandHandler("admin", admin_command)], states={CHOOSING: [CallbackQueryHandler(button_handler), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)], GENERATING_IMAGE: [CallbackQueryHandler(button_handler), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_image_prompt)]}, fallbacks=[CommandHandler("start", start)], allow_reentry=True)
+    app.add_handler(conv_handler)
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("admin", admin_command))
+    app.add_error_handler(error_handler)
+    print("🤖 ربات روشن شد...")
+    app.run_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
+
+i
