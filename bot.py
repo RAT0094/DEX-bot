@@ -213,7 +213,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             users_map = {u[0]: u for u in get_all_users()}
             for uid, role, msg_text, time in rows:
                 info = users_map.get(uid, (uid, "?", "", ""))
-                text += f"👤 {info[1]} (`{uid}`) @{info[2] or \'-\'}\n> {msg_text[:60]}...\n\n"
+                dash = "-"
+                username_display = info[2] or dash
+                text += f"👤 {info[1]} (`{uid}`) @{username_display}\n> {msg_text[:60]}...\n\n"
             await query.edit_message_text(text, parse_mode="Markdown", reply_markup=get_admin_menu())
             return CHOOSING
         elif query.data == "admin_stats":
