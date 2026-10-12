@@ -272,10 +272,10 @@ async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
             answer = data["choices"][0]["message"]["content"]
             save_message(user.id, "assistant", answer)
             await notify_admins(context, user, prompt, answer)
-            url_pattern = r\'https?://[^\s<>"\)]+\.(?:png|jpg|jpeg|gif|webp)(?:\?[^\s<>"\)]*)?\'
+            url_pattern = r"https?://\S+\.(?:png|jpg|jpeg|gif|webp)\S*"
             urls = re.findall(url_pattern, answer, re.IGNORECASE)
             if not urls:
-                urls = re.findall(r\'https?://[^\s<>"\)]+\', answer)
+                urls = re.findall(r"https?://\S+", answer)
             try:
                 await status_msg.delete()
             except:
