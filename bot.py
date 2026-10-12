@@ -243,7 +243,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             header = f"👤 **چت کاربر:** {name}\n🆔 `{uid}`\n🔗 @{display_name}\n━━━━━━━━━━━━\n"
             body = ""
             for role, msg_text, time in logs:
-                role_icon = "👤 کاربر:" if role == \'user\' else "🤖 ربات:"
+                role_icon = "👤 کاربر:" if role == "user" else "🤖 ربات:"
                 body += f"{role_icon} {msg_text[:300]}\n[{time}]\n---\n"
             full_text = (header + body)[:4000]
             if not full_text.strip():
@@ -272,10 +272,10 @@ async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
             answer = data["choices"][0]["message"]["content"]
             save_message(user.id, "assistant", answer)
             await notify_admins(context, user, prompt, answer)
-            url_pattern = r"https?://[^\s<>\"\)]+\.(?:png|jpg|jpeg|gif|webp)(?:\?[^\s<>\"\)]*)?"
+            url_pattern = r\'https?://[^\s<>"\)]+\.(?:png|jpg|jpeg|gif|webp)(?:\?[^\s<>"\)]*)?\'
             urls = re.findall(url_pattern, answer, re.IGNORECASE)
             if not urls:
-                urls = re.findall(r"https?://[^\s<>\"\)]+", answer)
+                urls = re.findall(r\'https?://[^\s<>"\)]+\', answer)
             try:
                 await status_msg.delete()
             except:
