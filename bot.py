@@ -17,7 +17,7 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CLEANAPIS_API_KEY = os.getenv("CLEANAPIS_API_KEY")
 CLEANAPIS_BASE_URL = "https://cleanapis.com"
 DEFAULT_MODEL = "gpt-5.6-luna"
-IMAGE_MODEL = "dall-e-3" # claude-opus-5.5 مدل عکس نیست!
+IMAGE_MODEL = "dall-e-3"
 
 OWNER_ID = 8163337709
 ADMIN_IDS = {OWNER_ID}
@@ -125,6 +125,30 @@ CHOOSING, GENERATING_IMAGE = range(2)
 WELCOME_MESSAGE = "سلام دوست عزیز، چه کمکی از دستم برمی‌آید؟\n\n✨ خوش آمدید"
 IMAGE_MODE_MESSAGE = "🎨 حالت ساخت تصویر فعال شد!\nتوصیف تصویرت را بفرست."
 BEAUTIFY_INSTRUCTION = "همیشه این قوانین نگارشی را رعایت کن: 1. در همه‌ی پیام‌ها از ایموجی مرتبط استفاده کن 2. اسم بازی، فیلم، کتاب یا اصطلاحات خاص را حتما با **Bold** نمایش بده. 3. اگر کد می‌دهی حتما داخل بلاک کد قرار بده."
+
+IMAGE_KEYWORDS = ["عکس بساز", "تصویر بساز", "عکس بکش", "تصویر بکش", "عکس درست کن", "تصویر درست کن", "عکسم رو", "پرامپت عکس", "generate image", "create image", "draw image", "make image"]
+
+def is_image_request(text: str) -> bool:
+    t = text.lower()
+    return any(k in t for k in IMAGE_KEYWORDS)
+
+def extract_image_urls(text: str):
+    return re.findall(r"https?://[^\s\)\]\"]+", text)
+
+async def send_image_url_as_photo(update, url, caption="🖼️ تصویر با موفقیت ساخته شد ✅✨"):
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            await update.message.reply_photo(photo=resp.content, caption=caption)
+            return True
+    except Exception as e:
+        logging.error(f"download failed {url}: {e}")
+        try:
+            await update.message.reply_photo(photo=url, caption=caption)
+            return True
+        except:
+            return False
 
 def get_main_menu(user_id=None):
     buttons = [[InlineKeyboardButton("⚪ اطلاعات کاربر", callback_data="user_info")],[InlineKeyboardButton("🟢 ابزارها", callback_data="more_services")]]
@@ -259,7 +283,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
         return CHOOSING
 
-# --- تابع اصلاح شده و جایگزین شده ---
 async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = update.message.text
     user = update.effective_user
@@ -267,68 +290,62 @@ async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
     save_message(user.id, "user", f"[IMAGE] {prompt}")
     status_msg = await update.message.reply_text("⏳ در حال پردازش... ✨\nتصویرت در حال ساخته شدنه 🎨")
     try:
+        model = context.user_data.get("model", DEFAULT_MODEL)
         async with httpx.AsyncClient(timeout=90.0) as client:
-            # اندپوینت صحیح برای عکس
             r = await client.post(
-                f"{CLEANAPIS_BASE_URL}/v1/images/generations",
+                f"{CLEANAPIS_BASE_URL}/v1/chat/completions",
                 headers={"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"},
                 json={
-                    "model": IMAGE_MODEL,
-                    "prompt": prompt,
-                    "n": 1,
-                    "size": "1024x1024"
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": f"You are Claude Fable 5.1 developed by Anthropic. You are an image generator. {BEAUTIFY_INSTRUCTION} When user asks for image, generate image and return direct image URL."},
+                        {"role": "user", "content": f"این پرامپت را به تصویر تبدیل کن: {prompt}"}
+                    ]
                 }
             )
             r.raise_for_status()
             data = r.json()
-            logging.info(f"Image API response: {data}")
-
-            image_url = None
-            b64_data = None
-            
-            if "data" in data and len(data["data"]) > 0:
-                image_url = data["data"][0].get("url")
-                b64_data = data["data"][0].get("b64_json")
-
-            if b64_data:
-                # اگر مدل b64 برگرداند مستقیم بفرست بدون لینک
-                image_bytes = base64.b64decode(b64_data)
-                save_message(user.id, "assistant", "[IMAGE_SENT]")
+            answer = data["choices"][0]["message"]["content"]
+            logging.info(f"Image chat response: {answer}")
+            urls = extract_image_urls(answer)
+            b64_match = re.search(r"data:image\/[^;]+;base64,([A-Za-z0-9+/=]+)", answer)
+            if b64_match:
+                image_bytes = base64.b64decode(b64_match.group(1))
+                save_message(user.id, "assistant", "[IMAGE_SENT_B64]")
                 await notify_admins(context, user, prompt, "[عکس ارسال شد]")
                 try: await status_msg.delete()
                 except: pass
                 await update.message.reply_photo(photo=image_bytes, caption="🖼️ تصویر با موفقیت ساخته شد ✅✨")
                 return GENERATING_IMAGE
-
-            if not image_url:
-                raise ValueError(f"لینک عکس دریافت نشد. پاسخ سرور: {str(data)[:500]}")
-
-            save_message(user.id, "assistant", image_url)
-            await notify_admins(context, user, prompt, image_url)
-            
-            try: await status_msg.delete()
-            except: pass
-            
-            # تلاش برای ارسال عکس
-            try:
-                await update.message.reply_photo(photo=image_url, caption="🖼️ تصویر با موفقیت ساخته شد ✅✨")
-            except Exception as photo_err:
-                # اگر باز هم خطای Wrong type داد، لینک رو به صورت متن بفرست
-                logging.error(f"Photo send failed, fallback to link: {photo_err}")
-                await update.message.reply_text(f"✅ تصویر ساخته شد ولی ارسال مستقیم ممکن نبود:\n{image_url}")
-
+            if urls:
+                save_message(user.id, "assistant", urls[0])
+                await notify_admins(context, user, prompt, urls[0])
+                try: await status_msg.delete()
+                except: pass
+                for url in urls:
+                    await send_image_url_as_photo(update, url, caption="🖼️ تصویر با موفقیت ساخته شد ✅✨")
+                return GENERATING_IMAGE
+            raise ValueError(f"مدل عکسی برنگرداند: {answer[:500]}")
     except Exception as e:
         logging.error(f"Image error: {e}")
-        try:
-            await status_msg.edit_text(f"❌ خطا در ساخت تصویر: {str(e)}")
-        except:
-            await update.message.reply_text(f"❌ خطا در ساخت تصویر: {str(e)}")
+        try: await status_msg.edit_text(f"❌ خطا در ساخت تصویر: {str(e)}")
+        except: await update.message.reply_text(f"❌ خطا در ساخت تصویر: {str(e)}")
     return GENERATING_IMAGE
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     user = update.effective_user
     save_user(user)
+    if is_image_request(text):
+        prompt = text
+        for k in IMAGE_KEYWORDS:
+            if k.lower() in text.lower():
+                parts = re.split(k, text, flags=re.IGNORECASE)
+                if len(parts) > 1 and parts[-1].strip():
+                    prompt = parts[-1].strip()
+                break
+        update.message.text = prompt
+        return await handle_image_prompt(update, context)
     save_message(user.id, "user", text)
     status_msg = await update.message.reply_text("⏳ در حال پردازش... ✨\nلطفا کمی صبر کن 🤖💭")
     try:
@@ -343,6 +360,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await status_msg.delete()
             except:
                 pass
+            urls = extract_image_urls(answer)
+            image_urls = [u for u in urls if any(x in u.lower() for x in [".png",".jpg",".jpeg",".webp","image","cdn","dall"])]
+            if image_urls:
+                for url in image_urls:
+                    await send_image_url_as_photo(update, url, caption="🖼️ تصویر با موفقیت ساخته شد ✅✨")
+                text_without_url = re.sub(r"https?://[^\s\)\]\"]+", "", answer).strip()
+                if text_without_url:
+                    try: await update.message.reply_text(text_without_url, parse_mode="Markdown")
+                    except: await update.message.reply_text(text_without_url)
+                return CHOOSING
             try:
                 await update.message.reply_text(answer, parse_mode="Markdown")
             except:
@@ -364,8 +391,4 @@ def main():
     conv_handler = ConversationHandler(entry_points=[CommandHandler("start", start), CommandHandler("admin", admin_command)], states={CHOOSING: [CallbackQueryHandler(button_handler), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)], GENERATING_IMAGE: [CallbackQueryHandler(button_handler), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_image_prompt)]}, fallbacks=[CommandHandler("start", start)], allow_reentry=True)
     app.add_handler(conv_handler)
     app.add_handler(CommandHandler("admin", admin_command))
-    print(f"DEX Bot running... Owner: {OWNER_ID}")
-    app.run_polling(drop_pending_updates=True)
-
-if __name__ == "__main__":
-    main()
+    print(f"DEX Bot running... Owner: {O
