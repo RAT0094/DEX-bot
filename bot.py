@@ -3,6 +3,7 @@ import httpx
 import re
 import logging
 import sqlite3
+import base64
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, CopyTextButton
 from telegram.ext import (
@@ -16,7 +17,7 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CLEANAPIS_API_KEY = os.getenv("CLEANAPIS_API_KEY")
 CLEANAPIS_BASE_URL = "https://cleanapis.com"
 DEFAULT_MODEL = "gpt-5.6-luna"
-IMAGE_MODEL = "claude-opus-5.5"
+IMAGE_MODEL = "dall-e-3" # claude-opus-5.5 مدل عکس نیست!
 
 OWNER_ID = 8163337709
 ADMIN_IDS = {OWNER_ID}
@@ -258,6 +259,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
         return CHOOSING
 
+# --- تابع اصلاح شده و جایگزین شده ---
 async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = update.message.text
     user = update.effective_user
@@ -265,32 +267,62 @@ async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
     save_message(user.id, "user", f"[IMAGE] {prompt}")
     status_msg = await update.message.reply_text("⏳ در حال پردازش... ✨\nتصویرت در حال ساخته شدنه 🎨")
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            r = await client.post(f"{CLEANAPIS_BASE_URL}/v1/chat/completions", headers={"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"}, json={"model": IMAGE_MODEL, "messages": [{"role": "system", "content": "You are a creative visual engine."}, {"role": "user", "content": f"Generate a visual representation for: {prompt}"}]})
+        async with httpx.AsyncClient(timeout=90.0) as client:
+            # اندپوینت صحیح برای عکس
+            r = await client.post(
+                f"{CLEANAPIS_BASE_URL}/v1/images/generations",
+                headers={"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"},
+                json={
+                    "model": IMAGE_MODEL,
+                    "prompt": prompt,
+                    "n": 1,
+                    "size": "1024x1024"
+                }
+            )
             r.raise_for_status()
             data = r.json()
-            answer = data["choices"][0]["message"]["content"]
-            save_message(user.id, "assistant", answer)
-            await notify_admins(context, user, prompt, answer)
-            url_pattern = r"https?://\S+\.(?:png|jpg|jpeg|gif|webp)\S*"
-            urls = re.findall(url_pattern, answer, re.IGNORECASE)
-            if not urls:
-                urls = re.findall(r"https?://\S+", answer)
+            logging.info(f"Image API response: {data}")
+
+            image_url = None
+            b64_data = None
+            
+            if "data" in data and len(data["data"]) > 0:
+                image_url = data["data"][0].get("url")
+                b64_data = data["data"][0].get("b64_json")
+
+            if b64_data:
+                # اگر مدل b64 برگرداند مستقیم بفرست بدون لینک
+                image_bytes = base64.b64decode(b64_data)
+                save_message(user.id, "assistant", "[IMAGE_SENT]")
+                await notify_admins(context, user, prompt, "[عکس ارسال شد]")
+                try: await status_msg.delete()
+                except: pass
+                await update.message.reply_photo(photo=image_bytes, caption="🖼️ تصویر با موفقیت ساخته شد ✅✨")
+                return GENERATING_IMAGE
+
+            if not image_url:
+                raise ValueError(f"لینک عکس دریافت نشد. پاسخ سرور: {str(data)[:500]}")
+
+            save_message(user.id, "assistant", image_url)
+            await notify_admins(context, user, prompt, image_url)
+            
+            try: await status_msg.delete()
+            except: pass
+            
+            # تلاش برای ارسال عکس
             try:
-                await status_msg.delete()
-            except:
-                pass
-            if urls:
-                image_url = urls[0].strip().rstrip(").>")
                 await update.message.reply_photo(photo=image_url, caption="🖼️ تصویر با موفقیت ساخته شد ✅✨")
-            else:
-                await update.message.reply_text(f"🖼 پاسخِ {IMAGE_MODEL}:\n\n{answer}")
+            except Exception as photo_err:
+                # اگر باز هم خطای Wrong type داد، لینک رو به صورت متن بفرست
+                logging.error(f"Photo send failed, fallback to link: {photo_err}")
+                await update.message.reply_text(f"✅ تصویر ساخته شد ولی ارسال مستقیم ممکن نبود:\n{image_url}")
+
     except Exception as e:
         logging.error(f"Image error: {e}")
         try:
-            await status_msg.edit_text(f"❌ خطای سیستم: {str(e)}")
+            await status_msg.edit_text(f"❌ خطا در ساخت تصویر: {str(e)}")
         except:
-            await update.message.reply_text(f"❌ خطای سیستم: {str(e)}")
+            await update.message.reply_text(f"❌ خطا در ساخت تصویر: {str(e)}")
     return GENERATING_IMAGE
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
