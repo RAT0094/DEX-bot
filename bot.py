@@ -239,7 +239,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.edit_message_text("چتی برای این کاربر یافت نشد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_users")]]))
                 return CHOOSING
             name, username = row
-            header = f"👤 **چت کاربر:** {name}\n🆔 `{uid}`\n🔗 @{username or \'بدون یوزرنیم\'}\n━━━━━━━━━━━━\n"
+            display_name = username or "بدون یوزرنیم"
+            header = f"👤 **چت کاربر:** {name}\n🆔 `{uid}`\n🔗 @{display_name}\n━━━━━━━━━━━━\n"
             body = ""
             for role, msg_text, time in logs:
                 role_icon = "👤 کاربر:" if role == \'user\' else "🤖 ربات:"
