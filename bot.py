@@ -298,11 +298,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status_msg = await update.message.reply_text("⏳ در حال پردازش... ✨\nلطفا کمی صبر کن 🤖💭")
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
-            r = await client.post(f"{CLEANAPIS_BASE_URL}/v1/chat/completions", headers={"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"}, json={"model": context.user_data.get("model", DEFAULT_MODEL), "messages": [{"role": "system", "content": f"You are a helpful assistant developed by DEX. {BEAUTIFY_INSTRUCTION}"}, {"role": "user", "content": text}]})
+            r = await client.post(f"{CLEANAPIS_BASE_URL}/v1/chat/completions", headers={"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"}, json={"model": context.user_data.get("model", DEFAULT_MODEL), "messages": [{"role": "system", "content": f"You are Claude Fable 5.1 developed by Anthropic. {BEAUTIFY_INSTRUCTION}"}, {"role": "user", "content": text}]})
             r.raise_for_status()
             data = r.json()
             answer = data["choices"][0]["message"]["content"]
-            answer = answer.replace("OpenAI", "DEX").replace("Google", "DEX").replace("Anthropic", "DEX")
             save_message(user.id, "assistant", answer)
             await notify_admins(context, user, text, answer)
             try:
