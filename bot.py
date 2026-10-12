@@ -199,7 +199,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             users = get_all_users()
             if not users:
                 await query.edit_message_text("هنوز کاربری پیامی نداده.", reply_markup=get_admin_menu())
-                return CHOOSING
+                reiHOOSING
             buttons = []
             for uid, name, username, last_seen in users[:20]:
                 username_str = f"@{username}" if username else "بدون یوزرنیم"
@@ -366,5 +366,3 @@ def main():
     app.add_error_handler(error_handler)
     print("🤖 ربات روشن شد...")
     app.run_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
-
-i
