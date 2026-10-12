@@ -382,21 +382,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ خطا در ارتباط با سرور: {str(e)}")
     return CHOOSING
 
+# --- بخش رفع مشکل Railway ---
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    logging.error(f"Error: {context.error}")
+
+async def post_init(application: Application):
+    await application.bot.delete_webhook(drop_pending_updates=True)
+    print("✅ Webhook پاک شد - polling فعال شد")
+
 def main():
     init_db()
     if not TELEGRAM_BOT_TOKEN or not CLEANAPIS_API_KEY:
         print("❌ TELEGRAM_BOT_TOKEN یا CLEANAPIS_API_KEY تنظیم نشده!")
         return
-    app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    app = Application.builder().token(TELEGRAM_BOT_TOKEN).post_init(post_init).build()
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start), CommandHandler("admin", admin_command)],
         states={
-            CHOOSING: [CallbackQueryHandler(button_handler), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)],
-            GENERATING_IMAGE: [CallbackQueryHandler(button_handler), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_image_prompt)]
-        },
-        fallbacks=[CommandHandler("start", start)],
-        allow_reentry=True
-    )
-    app.add_handler(conv_handler)
-    print("🤖 ربات روشن شد...")
- 
+            CHOOSING: [CallbackQueryHandler(button_handler), MessageHandler(filters.TEXT &
