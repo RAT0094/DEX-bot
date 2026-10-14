@@ -100,7 +100,7 @@ def get_services_menu():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🔴 ساخت تصویر 🎨💎", callback_data="gen_mode")],
         [InlineKeyboardButton("🔵 تغییر مدل 🤖✨", callback_data="change_model")],
-        [InlineKeyboardButton("⬅️ بازگشت", callback_data="back_main")]
+        [InlineKeyboardButton("⬅️ بازگشت ↩️", callback_data="back_main")]
     ])
 
 def get_admin_menu():
@@ -108,7 +108,7 @@ def get_admin_menu():
         [InlineKeyboardButton("👥 لیست کاربران 💎", callback_data="admin_users")],
         [InlineKeyboardButton("💬 آخرین پیام‌ها (10) ✨", callback_data="admin_recent")],
         [InlineKeyboardButton("📊 آمار 🚀", callback_data="admin_stats")],
-        [InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")]
+        [InlineKeyboardButton("🔙 بازگشت ↩️", callback_data="back_main")]
     ])
 
 async def notify_admins(context, user, user_text, bot_answer=None):
@@ -190,26 +190,26 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 kb = [
                     [InlineKeyboardButton(text=f"📋 شناسه: {user.id} 🆔💎", copy_text=CopyTextButton(text=str(user.id)))],
                     [InlineKeyboardButton(text=f"📋 مدل: {cur_model} 🤖✨", copy_text=CopyTextButton(text=cur_model))],
-                    [InlineKeyboardButton("⬅️ بازگشت", callback_data="back_main")]
+                    [InlineKeyboardButton("⬅️ بازگشت ↩️", callback_data="back_main")]
                 ]
             except Exception:
                 kb = [
                     [InlineKeyboardButton(text=f"📋 شناسه: {user.id} 🆔💎", callback_data="back_main")],
                     [InlineKeyboardButton(text=f"📋 مدل: {cur_model} 🤖✨", callback_data="back_main")],
-                    [InlineKeyboardButton("⬅️ بازگشت", callback_data="back_main")]
+                    [InlineKeyboardButton("⬅️ بازگشت ↩️", callback_data="back_main")]
                 ]
             await query.edit_message_text(info, parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(kb))
         elif query.data == "more_services":
             await query.edit_message_text("💎 **بخش ابزارها** ✨👇", parse_mode=ParseMode.MARKDOWN, reply_markup=get_services_menu())
         elif query.data == "gen_mode":
             context.user_data["awaiting_image"] = True
-            await query.edit_message_text(IMAGE_MODE_MESSAGE, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت به منو", callback_data="back_main")]]))
+            await query.edit_message_text(IMAGE_MODE_MESSAGE, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت به منو ↩️", callback_data="back_main")]]))
         elif query.data == "back_main":
             context.user_data["awaiting_image"] = False
             await query.edit_message_text(WELCOME_MESSAGE, reply_markup=get_main_menu(query.from_user.id))
         elif query.data == "change_model":
             buttons = [[InlineKeyboardButton(f"{emoji} {model} 💎", callback_data=f"set_{model}")] for model, emoji in MODELS_WITH_EMOJI.items()]
-            buttons.append([InlineKeyboardButton("🔙 بازگشت", callback_data="more_services")])
+            buttons.append([InlineKeyboardButton("🔙 بازگشت ↩️", callback_data="more_services")])
             await query.edit_message_text("🔵 **یک مدل برگزین:** ✨👑", parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(buttons))
         elif query.data.startswith("set_"):
             new_model = query.data[4:]
@@ -232,7 +232,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for uid, name, username, last_seen in users[:20]:
                 ustr = f"@{username}" if username else "بدون یوزرنیم"
                 buttons.append([InlineKeyboardButton(f"{name} | {ustr} | {uid} 💎", callback_data=f"admin_view_{uid}")])
-            buttons.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")])
+            buttons.append([InlineKeyboardButton("🔙 بازگشت ↩️", callback_data="admin_panel")])
             await query.edit_message_text(f"👥 **لیست کاربران ({len(users)} نفر):** 💎", parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(buttons))
         elif query.data == "admin_recent":
             if not is_admin(query.from_user.id):
@@ -246,7 +246,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for uid, role, msg_text, t in rows:
                 info = users_map.get(uid, (uid, "?", "", ""))
                 dash = "-"
-                text += f"👤 {info[1]} (`{uid}`) @{info[2] or dash}\n> {msg_text[:60]}...\n\n"
+                username_part = info[2] or dash
+                text += f"👤 {info[1]} (`{uid}`) @{username_part}\n> {msg_text[:60]}...\n\n"
             await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=get_admin_menu())
         elif query.data == "admin_stats":
             if not is_admin(query.from_user.id):
@@ -261,7 +262,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
                 row = conn.execute("SELECT name, username FROM users WHERE user_id=?", (uid,)).fetchone()
             if not row:
-                await query.edit_message_text("چتی یافت نشد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_users")]]))
+                await query.edit_message_text("چتی یافت نشد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت ↩️", callback_data="admin_users")]]))
                 return
             name, username = row
             fallback_name = "بدون یوزرنیم"
@@ -274,9 +275,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not full.strip():
                 full = header + "پیامی یافت نشد"
             try:
-                await query.edit_message_text(full, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 لیست", callback_data="admin_users")],[InlineKeyboardButton("🏠 پنل", callback_data="admin_panel")]]))
+                await query.edit_message_text(full, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 لیست ↩️", callback_data="admin_users")],[InlineKeyboardButton("🏠 پنل 👑", callback_data="admin_panel")]]))
             except Exception:
-                await query.edit_message_text(full, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 لیست", callback_data="admin_users")]]))
+                await query.edit_message_text(full, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 لیست ↩️", callback_data="admin_users")]]))
     except Exception as e:
         logging.error(f"button error: {e}", exc_info=True)
         try:
@@ -330,7 +331,10 @@ async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
         try:
             await status.edit_text(f"❌ خطا در ساخت تصویر: {str(e)} 💎")
         except Exception:
-            await update.message.reply_text(f"❌ خطا در ساخت تصویر: {str(e)}")
+            try:
+                await update.message.reply_text(f"❌ خطا در ساخت تصویر: {str(e)}")
+            except Exception:
+                pass
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
@@ -363,10 +367,4 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             answer = r.json()["choices"][0]["message"]["content"]
             save_message(user.id, "assistant", answer)
             await notify_admins(context, user, text, answer)
-            try:
-                await status.delete()
-            except Exception:
-                pass
-            urls = extract_image_urls(answer)
-            img_urls = [u for u in urls if any(x in u.lower() for x in [".png",".jpg",".jpeg",".webp","image","cdn","dall"])]
-         
+           
