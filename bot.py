@@ -80,7 +80,8 @@ BEAUTIFY_INSTRUCTION = "همیشه این قوانین نگارشی را رعا�
 IMAGE_KEYWORDS = ["عکس بساز", "تصویر بساز", "عکس بکش", "تصویر بکش", "عکس درست کن", "تصویر درست کن", "عکسم رو", "پرامپت عکس", "generate image", "create image", "draw image", "make image"]
 
 def is_image_request(text: str) -> bool:
-    if not text: return False
+    if not text:
+        return False
     return any(k in text.lower() for k in IMAGE_KEYWORDS)
 
 def extract_image_urls(text: str):
@@ -99,7 +100,8 @@ def get_admin_menu():
     return InlineKeyboardMarkup([[InlineKeyboardButton("👥 لیست کاربران", callback_data="admin_users")],[InlineKeyboardButton("💬 آخرین پیام‌ها (10)", callback_data="admin_recent")],[InlineKeyboardButton("📊 آمار", callback_data="admin_stats")],[InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")]])
 
 async def notify_admins(context, user, user_text, bot_answer=None):
-    if is_admin(user.id): return
+    if is_admin(user.id):
+        return
     try:
         username = f"@{user.username}" if user.username else "بدون یوزرنیم"
         safe_name = escape_markdown(user.first_name or "کاربر", version=2)
@@ -114,7 +116,8 @@ async def notify_admins(context, user, user_text, bot_answer=None):
             except:
                 try:
                     await context.bot.send_message(chat_id=aid, text=f"پیام از {user.first_name} ({user.id}):\n{user_text[:1000]}")
-                except: pass
+                except:
+                    pass
     except Exception as e:
         logging.error(f"notify error: {e}")
 
@@ -199,7 +202,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             await query.edit_message_text("👑 **پنل مدیریت مالک**", parse_mode=ParseMode.MARKDOWN, reply_markup=get_admin_menu())
         elif query.data == "admin_users":
-            if not is_admin(query.from_user.id): return
+            if not is_admin(query.from_user.id):
+                return
             users = get_all_users()
             if not users:
                 await query.edit_message_text("هنوز کاربری پیامی نداده.", reply_markup=get_admin_menu())
@@ -211,7 +215,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             buttons.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")])
             await query.edit_message_text(f"👥 **لیست کاربران ({len(users)} نفر):**", parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(buttons))
         elif query.data == "admin_recent":
-            if not is_admin(query.from_user.id): return
+            if not is_admin(query.from_user.id):
+                return
             rows = get_last_messages(10)
             if not rows:
                 await query.edit_message_text("هنوز پیامی ثبت نشده.", reply_markup=get_admin_menu())
@@ -224,11 +229,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text += f"👤 {info[1]} (`{uid}`) @{info[2] or dash}\n> {msg_text[:60]}...\n\n"
             await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=get_admin_menu())
         elif query.data == "admin_stats":
-            if not is_admin(query.from_user.id): return
+            if not is_admin(query.from_user.id):
+                return
             uc, mc = get_stats()
             await query.edit_message_text(f"📊 **آمار ربات**\n👥 کاربران: {uc}\n💬 پیام‌ها: {mc}\n👑 مالک: `{OWNER_ID}`", parse_mode=ParseMode.MARKDOWN, reply_markup=get_admin_menu())
         elif query.data.startswith("admin_view_"):
-            if not is_admin(query.from_user.id): return
+            if not is_admin(query.from_user.id):
+                return
             uid = int(query.data.replace("admin_view_", ""))
             logs = get_user_logs(uid, 15)
             with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
@@ -244,7 +251,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 icon = "👤 کاربر:" if role == "user" else "🤖 ربات:"
                 body += f"{icon} {escape_markdown(msg_text[:300], version=2)}\n\\[{escape_markdown(t, version=2)}\\]\n---\n"
             full = (header + body)[:4000]
-            if not full.strip(): full = header + "پیامی یافت نشد"
+            if not full.strip():
+                full = header + "پیامی یافت نشد"
             try:
                 await query.edit_message_text(full, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 لیست", callback_data="admin_users")],[InlineKeyboardButton("🏠 پنل", callback_data="admin_panel")]]))
             except:
@@ -253,7 +261,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logging.error(f"button error: {e}", exc_info=True)
         try:
             await query.edit_message_text("❌ خطایی رخ داد، دوباره /start بزن", reply_markup=get_main_menu(query.from_user.id))
-        except: pass
+        except:
+            pass
 
 async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE, prompt: str = None):
     if prompt is None:
@@ -265,7 +274,15 @@ async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
     try:
         model = context.user_data.get("model", DEFAULT_MODEL)
         async with httpx.AsyncClient(timeout=90.0) as client:
-            r = await client.post(f"{CLEANAPIS_BASE_URL}/v1/chat/completions", headers={"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"}, json={"model": model, "messages": [{"role": "system", "content": f"You are GPT-5.6 Sol developed by OpenAI. You are an image generator. {BEAUTIFY_INSTRUCTION} When user asks for image, generate image and return direct image URL."}, {"role": "user", "content": f"این پرامپت را به تصویر تبدیل کن: {prompt}"}]})
+            payload = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": f"You are GPT-5.6 Sol developed by OpenAI. You are an image generator. {BEAUTIFY_INSTRUCTION} When user asks for image, generate image and return direct image URL."},
+                    {"role": "user", "content": f"این پرامپت را به تصویر تبدیل کن: {prompt}"}
+                ]
+            }
+            headers = {"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"}
+            r = await client.post(f"{CLEANAPIS_BASE_URL}/v1/chat/completions", headers=headers, json=payload)
             r.raise_for_status()
             answer = r.json()["choices"][0]["message"]["content"]
             urls = extract_image_urls(answer)
@@ -275,8 +292,10 @@ async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
                     img = base64.b64decode(b64.group(1))
                     save_message(user.id, "assistant", "[IMAGE_SENT_B64]")
                     await notify_admins(context, user, prompt, "[عکس ارسال شد]")
-                    try: await status.delete()
-                    except: pass
+                    try:
+                        await status.delete()
+                    except:
+                        pass
                     await update.message.reply_photo(photo=img, caption="🖼️ تصویر با موفقیت ساخته شد ✅✨")
                     return
                 except Exception as e:
@@ -284,16 +303,20 @@ async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
             if urls:
                 save_message(user.id, "assistant", urls[0])
                 await notify_admins(context, user, prompt, urls[0])
-                try: await status.delete()
-                except: pass
+                try:
+                    await status.delete()
+                except:
+                    pass
                 for url in urls:
                     await send_image_url_as_photo(update, url)
                 return
             raise ValueError(f"مدل عکسی برنگرداند: {answer[:500]}")
     except Exception as e:
         logging.error(f"Image error: {e}", exc_info=True)
-        try: await status.edit_text(f"❌ خطا در ساخت تصویر: {str(e)}")
-        except: await update.message.reply_text(f"❌ خطا در ساخت تصویر: {str(e)}")
+        try:
+            await status.edit_text(f"❌ خطا در ساخت تصویر: {str(e)}")
+        except:
+            await update.message.reply_text(f"❌ خطا در ساخت تصویر: {str(e)}")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
@@ -319,13 +342,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status = await update.message.reply_text("⏳ در حال پردازش... ✨\nلطفا کمی صبر کن 🤖💭")
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
-            r = await client.post(f"{CLEANAPIS_BASE_URL}/v1/chat/completions", headers={"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"}, json={"model": context.user_data.get("model", DEFAULT_MODEL), "messages": [{"role": "system", "content": f"You are GPT-5.6 Sol developed by OpenAI. {BEAUTIFY_INSTRUCTION}"}, {"role": "user", "content": text}]})
+            payload = {
+                "model": context.user_data.get("model", DEFAULT_MODEL),
+                "messages": [
+                    {"role": "system", "content": f"You are GPT-5.6 Sol developed by OpenAI. {BEAUTIFY_INSTRUCTION}"},
+                    {"role": "user", "content": text}
+                ]
+            }
+            headers = {"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"}
+            r = await client.post(f"{CLEANAPIS_BASE_URL}/v1/chat/completions", headers=headers, json=payload)
             r.raise_for_status()
             answer = r.json()["choices"][0]["message"]["content"]
             save_message(user.id, "assistant", answer)
             await notify_admins(context, user, text, answer)
-            try: await status.delete()
-            except: pass
+            try:
+                await status.delete()
+            except:
+                pass
             urls = extract_image_urls(answer)
             img_urls = [u for u in urls if any(x in u.lower() for x in [".png",".jpg",".jpeg",".webp","image","cdn","dall"])]
             if img_urls:
@@ -333,18 +366,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await send_image_url_as_photo(update, url)
                 txt = re.sub(r"https?://[^\s\)\]]+", "", answer).strip()
                 if txt:
-                    try: await update.message.reply_text(txt, parse_mode=ParseMode.MARKDOWN)
-                    except: await update.message.reply_text(txt)
-                return
-            try: await update.message.reply_text(answer, parse_mode=ParseMode.MARKDOWN)
-            except: await update.message.reply_text(answer)
-    except Exception as e:
-        logging.error(f"Message error: {e}", exc_info=True)
-        try: await status.edit_text(f"❌ خطا در ارتباط با سرور: {str(e)}")
-        except: await update.message.reply_text(f"❌ خطا در ارتباط با سرور: {str(e)}")
-
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-    logging.error(f"Error: {context.error}", exc_info=context.error)
-
-async def post_init(app: Application):
-    await app.bot.delete_webhook(drop_pending_
+                    try:
+                        await update.message.reply_text(txt, parse_mode=ParseMode.MARKDOWN)
+                    except:
+                        await update.message.reply_text(txt)
+   
