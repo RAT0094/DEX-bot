@@ -5,6 +5,7 @@ import sqlite3
 import logging
 import threading
 import asyncio
+import time
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import httpx
@@ -22,14 +23,21 @@ OWNER_ID = 8163337709
 DB_PATH = "bot_memory.db"
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-# فیکس مشکل postgres:// در Railway
+# فیکس Railway postgres://
 if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 IS_POSTGRES = bool(DATABASE_URL and "postgresql" in DATABASE_URL)
 
 BEAUTIFY_INSTRUCTION = "پاسخ‌ها را بسیار دقیق، زیبا، ساختاریافته، جذاب و با استفاده از ایموجی‌های مناسب به زبان فارسی روان ارائه بده."
-MODELS_WITH_EMOJI = {"gpt-5.6-luna": "🌙💎","claude-opus-5.5": "🎭✨","gpt-5.5": "⚡🚀","gpt-5.5-pro": "🚀👑","claude-fable-5": "📖💫","claude-fable-5.1": "✨👑"}
+MODELS_WITH_EMOJI = {
+    "gpt-5.6-luna": "🌙💎",
+    "claude-opus-5.5": "🎭✨",
+    "gpt-5.5": "⚡🚀",
+    "gpt-5.5-pro": "🚀👑",
+    "claude-fable-5": "📖💫",
+    "claude-fable-5.1": "✨👑"
+}
 IMAGE_KEYWORDS = ["عکس", "تصویر", "نقاشی", "طراحی", "image", "draw", "paint"]
 
 # ----------------- دیتابیس هوشمند -----------------
@@ -52,7 +60,8 @@ def init_db():
             cur.execute("CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, role TEXT, content TEXT, timestamp TEXT)")
         conn.commit()
         conn.close()
-        logger.info(f"✅ Database initialized: {\'PostgreSQL\' if IS_POSTGRES else \'SQLite\'}")
+        db_name = "PostgreSQL" if IS_POSTGRES else "SQLite"
+        logger.info(f"✅ Database initialized: {db_name}")
     except Exception as e:
         logger.error(f"❌ DB Init Failed: {e}", exc_info=True)
         raise
@@ -77,35 +86,45 @@ def save_message(user_id, role, content):
 
 def get_all_users():
     conn = get_conn(); cur = conn.cursor(); cur.execute("SELECT user_id, username, first_name, joined_at FROM users"); rows = cur.fetchall(); conn.close(); return rows
+
 def get_user_logs(user_id, limit=20):
     conn = get_conn(); cur = conn.cursor()
     q = "SELECT role, content, timestamp FROM messages WHERE user_id=%s ORDER BY id DESC LIMIT %s" if IS_POSTGRES else "SELECT role, content, timestamp FROM messages WHERE user_id=? ORDER BY id DESC LIMIT ?"
     cur.execute(q, (user_id, limit)); rows = cur.fetchall(); conn.close(); return rows[::-1]
+
 def get_stats():
     conn = get_conn(); cur = conn.cursor(); cur.execute("SELECT COUNT(*) FROM users"); uc=cur.fetchone()[0]; cur.execute("SELECT COUNT(*) FROM messages"); mc=cur.fetchone()[0]; conn.close(); return uc, mc
+
 def get_last_messages(limit=10):
     conn = get_conn(); cur = conn.cursor()
     q = "SELECT m.user_id, u.username, m.role, m.content, m.timestamp FROM messages m LEFT JOIN users u ON m.user_id=u.user_id ORDER BY m.id DESC LIMIT %s" if IS_POSTGRES else "SELECT m.user_id, u.username, m.role, m.content, m.timestamp FROM messages m LEFT JOIN users u ON m.user_id=u.user_id ORDER BY m.id DESC LIMIT ?"
     cur.execute(q, (limit,)); rows=cur.fetchall(); conn.close(); return rows[::-1]
+
 def is_admin(user_id: int) -> bool: return user_id == OWNER_ID
 
 # ----------------- توابع کمکی -----------------
 def is_image_request(text: str) -> bool: return any(kw in text.lower() for kw in IMAGE_KEYWORDS)
+
 def extract_image_urls(text: str):
     found = re.compile(r\'https?://[^\s<>"]+|www\.[^\s<>"]+\').findall(text)
     return [u for u in found if any(u.lower().endswith(ext) or \'image\' in u.lower() or \'cleanapis\' in u.lower() for ext in (\'.png\',\'.jpg\',\'.jpeg\',\'.webp\',\'.gif\'))]
+
 def get_main_menu(user_id: int):
     kb = [[InlineKeyboardButton("🎨 ساخت تصویر", callback_data="gen_mode"), InlineKeyboardButton("🛠️ سرویس‌ها و مدل‌ها", callback_data="services_menu")],[InlineKeyboardButton("💎 درباره ربات", callback_data="about")]]
     if is_admin(user_id): kb.append([InlineKeyboardButton("👑 پنل مدیریت", callback_data="admin_panel")])
     return InlineKeyboardMarkup(kb)
+
 def get_services_menu(current_model: str):
     rows = [[InlineKeyboardButton(f"{emoji} {\'✅ \'+k if k==current_model else k}", callback_data=f"set_{k}")] for k,emoji in MODELS_WITH_EMOJI.items()]
     rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")])
     return InlineKeyboardMarkup(rows)
+
 def get_admin_menu(): return InlineKeyboardMarkup([[InlineKeyboardButton("👥 کاربران", callback_data="admin_users"), InlineKeyboardButton("📊 آمار", callback_data="admin_stats")],[InlineKeyboardButton("💬 آخرین پیام‌ها", callback_data="admin_recent"), InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]])
+
 async def notify_admins(context, user, prompt, answer):
     try: await context.bot.send_message(chat_id=OWNER_ID, text=f"🚨 گزارش:\n👤 {user.first_name} (@{user.username or \'ندارد\'} | `{user.id}`)\n📌 درخواست:\n{prompt}\n\n🤖 پاسخ:\n{str(answer)[:1000]}", parse_mode="Markdown")
     except Exception as e: logger.error(f"notify failed: {e}")
+
 async def send_image_url_as_photo(update: Update, url: str):
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -131,9 +150,11 @@ def start_health_server():
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_user(update.effective_user); context.user_data.setdefault("model", DEFAULT_MODEL)
     await update.message.reply_text(f"سلام {update.effective_user.first_name} عزیز! 🌸✨\nبه ربات هوش مصنوعی خوش آمدید 🤖💎", reply_markup=get_main_menu(update.effective_user.id))
+
 async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id): await update.message.reply_text("⛔ دسترسی ندارید!"); return
     await update.message.reply_text("👑 پنل مدیریت:", reply_markup=get_admin_menu())
+
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query; await query.answer(); user=query.from_user; data=query.data
     try:
@@ -173,14 +194,14 @@ async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
                 r.raise_for_status(); answer=r.json()["choices"][0]["message"]["content"]; break
         except Exception as e:
             logger.warning(f"Image attempt {attempt} failed: {e}")
-            if attempt<3: await asyncio.sleep(3); 
+            if attempt<3: await asyncio.sleep(3)
             else: await status.delete(); await update.message.reply_text(f"❌ خطا در ساخت تصویر: {str(e)[:200]} 💎"); return
     if answer:
         urls=extract_image_urls(answer); b64=re.search(r"data:image/[^;]+;base64,([A-Za-z0-9+/=]+)", answer)
         if b64:
             try: img=base64.b64decode(b64.group(1)); save_message(update.effective_user.id,"assistant","[IMAGE_SENT]"); await notify_admins(context,update.effective_user,prompt,"[عکس]"); await status.delete(); await update.message.reply_photo(photo=img, caption="🖼️ تصویر ساخته شد ✅✨💎"); return
             except: pass
-        if urls: save_message(update.effective_user.id,"assistant",urls[0]); await notify_admins(context,update.effective_user,prompt,urls[0]); await status.delete(); 
+        if urls: save_message(update.effective_user.id,"assistant",urls[0]); await notify_admins(context,update.effective_user,prompt,urls[0]); await status.delete()
         else: await status.delete(); await update.message.reply_text(f"🖼️ پاسخ مدل:\n{answer}"); return
         for url in urls: await send_image_url_as_photo(update, url)
 
@@ -212,18 +233,30 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else: await status.delete(); await update.message.reply_text("❌ سرور شلوغه، لطفاً دوباره تلاش کن 💎"); return
     if answer: save_message(user.id,"assistant",answer); await notify_admins(context,user,text,answer); await status.delete(); await update.message.reply_text(answer)
 
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    logger.error("Exception:", exc_info=context.error)
+
 def main():
-    if TELEGRAM_BOT_TOKEN == "YOUR_BOT_TOKEN" or not TELEGRAM_BOT_TOKEN:
-        logger.error("⚠️ TELEGRAM_BOT_TOKEN تنظیم نشده!")
+    if not TELEGRAM_BOT_TOKEN or TELEGRAM_BOT_TOKEN == "YOUR_BOT_TOKEN":
+        logger.error("❌ TELEGRAM_BOT_TOKEN ست نشده! Variables رو چک کن")
+        threading.Thread(target=start_health_server, daemon=True).start()
+        while True: time.sleep(3600)
         return
-    init_db()
+    try:
+        init_db()
+    except Exception as e:
+        logger.error(f"DB init fallback to SQLite: {e}")
+        global DATABASE_URL, IS_POSTGRES
+        DATABASE_URL = None; IS_POSTGRES = False
+        init_db()
     threading.Thread(target=start_health_server, daemon=True).start()
     application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+    application.add_error_handler(error_handler)
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("admin", admin_command))
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    logger.info("Bot is starting... 🚀")
-    application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+    logger.info("Bot is starting... 🚀 Polling...")
+    application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True, close_loop=False)
 
 if __name__ == "__main__": main()
