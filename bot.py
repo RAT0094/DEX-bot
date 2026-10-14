@@ -247,7 +247,7 @@ async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
     try:
         model = context.user_data.get("model", DEFAULT_MODEL)
         async with httpx.AsyncClient(timeout=90.0) as client:
-            r = await client.post(f"{CLEANAPIS_BASE_URL}/v1/chat/completions", headers={"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"}, json={"model": model, "messages": [{"role": "system", "content": f"You are Claude Fable 5.1 developed by Anthropic. You are an image generator. {BEAUTIFY_INSTRUCTION} When user asks for image, generate image and return direct image URL."}, {"role": "user", "content": f"این پرامپت را به تصویر تبدیل کن: {prompt}"}]})
+            r = await client.post(f"{CLEANAPIS_BASE_URL}/v1/chat/completions", headers={"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"}, json={"model": model, "messages": [{"role": "system", "content": f"You are GPT-5.6 Sol developed by OpenAI. You are an image generator. {BEAUTIFY_INSTRUCTION} When user asks for image, generate image and return direct image URL."}, {"role": "user", "content": f"این پرامپت را به تصویر تبدیل کن: {prompt}"}]})
             r.raise_for_status()
             answer = r.json()["choices"][0]["message"]["content"]
             urls = extract_image_urls(answer)
@@ -293,7 +293,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status = await update.message.reply_text("⏳ در حال پردازش... ✨\nلطفا کمی صبر کن 🤖💭")
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
-            r = await client.post(f"{CLEANAPIS_BASE_URL}/v1/chat/completions", headers={"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"}, json={"model": context.user_data.get("model", DEFAULT_MODEL), "messages": [{"role": "system", "content": f"You are Claude Fable 5.1 developed by Anthropic. {BEAUTIFY_INSTRUCTION}"}, {"role": "user", "content": text}]})
+            r = await client.post(f"{CLEANAPIS_BASE_URL}/v1/chat/completions", headers={"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"}, json={"model": context.user_data.get("model", DEFAULT_MODEL), "messages": [{"role": "system", "content": f"You are GPT-5.6 Sol developed by OpenAI. {BEAUTIFY_INSTRUCTION}"}, {"role": "user", "content": text}]})
             r.raise_for_status()
             answer = r.json()["choices"][0]["message"]["content"]
             save_message(user.id, "assistant", answer)
@@ -358,4 +358,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-PYEOF
