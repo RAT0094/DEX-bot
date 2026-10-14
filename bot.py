@@ -211,7 +211,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             users_map = {u[0]: u for u in get_all_users()}
             for uid, role, msg_text, t in rows:
                 info = users_map.get(uid, (uid, "?", "", ""))
-                text += f"👤 {info[1]} (`{uid}`) @{info[2] or \'-\'}\n> {msg_text[:60]}...\n\n"
+                dash = "-"
+                text += f"👤 {info[1]} (`{uid}`) @{info[2] or dash}\n> {msg_text[:60]}...\n\n"
             await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=get_admin_menu())
             return CHOOSING
         elif query.data == "admin_stats":
@@ -229,7 +230,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.edit_message_text("چتی یافت نشد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_users")]]))
                 return CHOOSING
             name, username = row
-            header = f"👤 **چت کاربر:** {escape_markdown(name, version=2)}\n🆔 `{uid}`\n🔗 @{escape_markdown(username or \'بدون یوزرنیم\', version=2)}\n━━━━━━━━━━━━\n"
+            fallback_name = "بدون یوزرنیم"
+            header = f"👤 **چت کاربر:** {escape_markdown(name, version=2)}\n🆔 `{uid}`\n🔗 @{escape_markdown(username or fallback_name, version=2)}\n━━━━━━━━━━━━\n"
             body = ""
             for role, msg_text, t in logs:
                 icon = "👤 کاربر:" if role == "user" else "🤖 ربات:"
@@ -345,6 +347,4 @@ def main():
     if not TELEGRAM_BOT_TOKEN or not CLEANAPIS_API_KEY:
         print("❌ TELEGRAM_BOT_TOKEN یا CLEANAPIS_API_KEY تنظیم نشده!")
         return
-    app = Application.builder().token(TELEGRAM_BOT_TOKEN).post_init(post_init).build()
-    conv = ConversationHandler(
-        entry_points=[Comma
+    app = Application.builder().token(TELEGRAM_BOT_TOKEN).post_init(post_init).b
