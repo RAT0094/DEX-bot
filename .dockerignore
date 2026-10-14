@@ -1,6 +1,0 @@
-__pycache__
-*.pyc
-.git
-bot_memory.db
-.env
-venv
