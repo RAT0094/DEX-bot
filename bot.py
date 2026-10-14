@@ -10,7 +10,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Mess
 from telegram.helpers import escape_markdown
 from telegram.constants import ParseMode
 
-logging.basicConfig(level=logging.INFO, format=\'%(asctime)s - %(name)s - %(levelname)s - %(message)s\')
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CLEANAPIS_API_KEY = os.getenv("CLEANAPIS_API_KEY")
@@ -62,7 +62,6 @@ def get_stats():
     return u, m
 
 def get_last_messages(limit=10):
-    # FIX: حذف \ اضافی قبل از \'
     with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
         return conn.execute("SELECT user_id, role, text, time FROM messages WHERE role=\'user\' ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
 
@@ -83,8 +82,7 @@ async def notify_admins(context, user, user_text, bot_answer=None):
         for aid in ADMIN_IDS:
             try:
                 await context.bot.send_message(chat_id=aid, text=log_text, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"👁 مشاهده چت {user.first_name}", callback_data=f"admin_view_{user.id}")]]))
-            except Exception as e:
-                logging.warning(f"markdown send failed for admin {aid}: {e}")
+            except:
                 try:
                     await context.bot.send_message(chat_id=aid, text=f"پیام از {user.first_name} ({user.id}):\n{user_text[:1000]}")
                 except:
@@ -96,7 +94,7 @@ MODELS_WITH_EMOJI = {"gpt-5.6-luna": "🌙","claude-opus-5.5": "🎭","gpt-5.5":
 CHOOSING, GENERATING_IMAGE = range(2)
 WELCOME_MESSAGE = "سلام دوست عزیز، چه کمکی از دستم برمی‌آید؟\n\n✨ خوش آمدید"
 IMAGE_MODE_MESSAGE = "🎨 حالت ساخت تصویر فعال شد!\nتوصیف تصویرت را بفرست."
-BEAUTIFY_INSTRUCTION = "همیشه این قوانین نگارشی را رعایت کن: 1. در همه‌ی پیام‌ها از ایموجی مرتبط استفاده کن 2. اسم بازی، فیلم، کتاب یا اصطلاحات خاص را حتما با **Bold** نمایش بده. 3. اگر کد می‌دهی حتما داخل بلاک کد قرار بده."
+BEAUTIFY_INSTRUCTION = "همیشه این قوانین نگارشی را رعایت کن: 1. در همه پیام‌ها از ایموجی مرتبط استفاده کن 2. اسم بازی، فیلم، کتاب یا اصطلاحات خاص را حتما با **Bold** نمایش بده. 3. اگر کد می‌دهی حتما داخل بلاک کد قرار بده."
 IMAGE_KEYWORDS = ["عکس بساز", "تصویر بساز", "عکس بکش", "تصویر بکش", "عکس درست کن", "تصویر درست کن", "عکسم رو", "پرامپت عکس", "generate image", "create image", "draw image", "make image"]
 
 def is_image_request(text: str) -> bool:
@@ -240,8 +238,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not full.strip(): full = header + "پیامی یافت نشد"
             try:
                 await query.edit_message_text(full, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 لیست", callback_data="admin_users")],[InlineKeyboardButton("🏠 پنل", callback_data="admin_panel")]]))
-            except Exception as e:
-                logging.warning(f"markdown_v2 failed: {e}")
+            except:
                 await query.edit_message_text(full, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 لیست", callback_data="admin_users")]]))
             return CHOOSING
     except Exception as e:
@@ -251,7 +248,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except: pass
         return CHOOSING
 
-# FIX: prompt به عنوان آرگومان جدا گرفته میشود نه با تغییر update.message.text
 async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE, prompt: str = None):
     if prompt is None:
         prompt = update.message.text or ""
@@ -346,4 +342,10 @@ async def post_init(app: Application):
 
 def main():
     init_db()
+    if not TELEGRAM_BOT_TOKEN or not CLEANAPIS_API_KEY:
+        print("❌ TELEGRAM_BOT_TOKEN یا CLEANAPIS_API_KEY تنظیم نشده!")
+        return
+    app = Application.builder().token(TELEGRAM_BOT_TOKEN).post_init(post_init).build()
+    conv = ConversationHandler(
+        entry_points=[
     
