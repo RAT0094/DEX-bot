@@ -73,10 +73,10 @@ def get_last_messages(limit=10):
 def is_admin(uid: int) -> bool:
     return uid in ADMIN_IDS
 
-MODELS_WITH_EMOJI = {"gpt-5.6-luna": "🌙","claude-opus-5.5": "🎭","gpt-5.5": "⚡","gpt-5.5-pro": "🚀","claude-fable-5": "📖","claude-fable-5.1": "✨"}
-WELCOME_MESSAGE = "سلام دوست عزیز، چه کمکی از دستم برمی‌آید؟\n\n✨ خوش آمدید"
-IMAGE_MODE_MESSAGE = "🎨 حالت ساخت تصویر فعال شد!\nتوصیف تصویرت را بفرست."
-BEAUTIFY_INSTRUCTION = "همیشه این قوانین نگارشی را رعایت کن: 1. در همه پیام‌ها از ایموجی مرتبط استفاده کن 2. اسم بازی، فیلم، کتاب یا اصطلاحات خاص را حتما با **Bold** نمایش بده. 3. اگر کد می‌دهی حتما داخل بلاک کد قرار بده."
+MODELS_WITH_EMOJI = {"gpt-5.6-luna": "🌙💎","claude-opus-5.5": "🎭✨","gpt-5.5": "⚡🚀","gpt-5.5-pro": "🚀👑","claude-fable-5": "📖💫","claude-fable-5.1": "✨👑"}
+WELCOME_MESSAGE = "سلام دوست عزیز 💎\nچه کمکی از دستم برمی‌آید؟ ✨\n\n👑 خوش آمدید 🚀"
+IMAGE_MODE_MESSAGE = "🎨💎 حالت ساخت تصویر فعال شد!\nتوصیف تصویرت را بفرست ✨"
+BEAUTIFY_INSTRUCTION = "همیشه این قوانین نگارشی را رعایت کن: 1. در همه پیام‌ها از ایموجی پرمیوم مرتبط استفاده کن 2. اسم بازی، فیلم، کتاب یا اصطلاحات خاص را حتما با **Bold** نمایش بده. 3. اگر کد می‌دهی حتما داخل بلاک کد قرار بده."
 IMAGE_KEYWORDS = ["عکس بساز", "تصویر بساز", "عکس بکش", "تصویر بکش", "عکس درست کن", "تصویر درست کن", "عکسم رو", "پرامپت عکس", "generate image", "create image", "draw image", "make image"]
 
 def is_image_request(text: str) -> bool:
@@ -88,16 +88,28 @@ def extract_image_urls(text: str):
     return re.findall(r"https?://[^\s\)\]]+", text)
 
 def get_main_menu(user_id=None):
-    buttons = [[InlineKeyboardButton("⚪ اطلاعات کاربر", callback_data="user_info")],[InlineKeyboardButton("🟢 ابزارها", callback_data="more_services")]]
+    buttons = [
+        [InlineKeyboardButton("🔵 اطلاعات کاربر 💎", callback_data="user_info")],
+        [InlineKeyboardButton("🟢 ابزارها ✨👑", callback_data="more_services")]
+    ]
     if user_id and is_admin(user_id):
-        buttons.append([InlineKeyboardButton("👑 پنل ادمین", callback_data="admin_panel")])
+        buttons.append([InlineKeyboardButton("👑 پنل ادمین 💎", callback_data="admin_panel")])
     return InlineKeyboardMarkup(buttons)
 
 def get_services_menu():
-    return InlineKeyboardMarkup([[InlineKeyboardButton("🎨 ساخت تصویر", callback_data="gen_mode")],[InlineKeyboardButton("🔄 تغییر مدل", callback_data="change_model")],[InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")]])
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔴 ساخت تصویر 🎨💎", callback_data="gen_mode")],
+        [InlineKeyboardButton("🔵 تغییر مدل 🤖✨", callback_data="change_model")],
+        [InlineKeyboardButton("⬅️ بازگشت", callback_data="back_main")]
+    ])
 
 def get_admin_menu():
-    return InlineKeyboardMarkup([[InlineKeyboardButton("👥 لیست کاربران", callback_data="admin_users")],[InlineKeyboardButton("💬 آخرین پیام‌ها (10)", callback_data="admin_recent")],[InlineKeyboardButton("📊 آمار", callback_data="admin_stats")],[InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")]])
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("👥 لیست کاربران 💎", callback_data="admin_users")],
+        [InlineKeyboardButton("💬 آخرین پیام‌ها (10) ✨", callback_data="admin_recent")],
+        [InlineKeyboardButton("📊 آمار 🚀", callback_data="admin_stats")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")]
+    ])
 
 async def notify_admins(context, user, user_text, bot_answer=None):
     if is_admin(user.id):
@@ -107,21 +119,21 @@ async def notify_admins(context, user, user_text, bot_answer=None):
         safe_name = escape_markdown(user.first_name or "کاربر", version=2)
         safe_username = escape_markdown(username, version=2)
         safe_text = escape_markdown(user_text[:1000] if user_text else "-", version=2)
-        log_text = f"📩 پیام جدید\n👤 نام: {safe_name}\n🆔 آیدی: `{user.id}`\n🔗 {safe_username}\n⏰ {escape_markdown(now_str(), version=2)}\n👤 پیام:\n{safe_text}\n"
+        log_text = f"📩 پیام جدید 💎\n👤 نام: {safe_name}\n🆔 آیدی: `{user.id}`\n🔗 {safe_username}\n⏰ {escape_markdown(now_str(), version=2)}\n👤 پیام:\n{safe_text}\n"
         if bot_answer:
             log_text += f"\n🤖 پاسخ:\n{escape_markdown(bot_answer[:1000], version=2)}"
         for aid in ADMIN_IDS:
             try:
-                await context.bot.send_message(chat_id=aid, text=log_text, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"👁 مشاهده چت {user.first_name}", callback_data=f"admin_view_{user.id}")]]))
-            except:
+                await context.bot.send_message(chat_id=aid, text=log_text, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"👁 مشاهده چت {user.first_name} 💎", callback_data=f"admin_view_{user.id}")]]))
+            except Exception:
                 try:
                     await context.bot.send_message(chat_id=aid, text=f"پیام از {user.first_name} ({user.id}):\n{user_text[:1000]}")
-                except:
+                except Exception:
                     pass
     except Exception as e:
         logging.error(f"notify error: {e}")
 
-async def send_image_url_as_photo(update, url, caption="🖼️ تصویر با موفقیت ساخته شد ✅✨"):
+async def send_image_url_as_photo(update, url, caption="🖼️ تصویر با موفقیت ساخته شد ✅✨💎"):
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
             resp = await client.get(url)
@@ -139,7 +151,7 @@ async def send_image_url_as_photo(update, url, caption="🖼️ تصویر با 
             return False
 
 async def health_handler(request):
-    return web.Response(text="OK - Bot is running")
+    return web.Response(text="OK - Bot is running 💎")
 
 async def start_health_server():
     app_web = web.Application()
@@ -150,7 +162,7 @@ async def start_health_server():
     port = int(os.getenv("PORT", 8080))
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    logging.info(f"Health server listening on {port}")
+    logging.info(f"Health server listening on {port} 💎")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if "model" not in context.user_data:
@@ -164,7 +176,7 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         await update.message.reply_text("⛔ شما دسترسی ادمین ندارید.")
         return
-    await update.message.reply_text("👑 **پنل ادمین**", parse_mode=ParseMode.MARKDOWN, reply_markup=get_admin_menu())
+    await update.message.reply_text("👑 **پنل ادمین** 💎", parse_mode=ParseMode.MARKDOWN, reply_markup=get_admin_menu())
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -173,14 +185,22 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if query.data == "user_info":
             user = update.effective_user
             cur_model = context.user_data.get("model", DEFAULT_MODEL)
-            info = f"👤 **اطلاعات کاربر** 🪞\n━━━━━━━━━━━━━━━━━━━━\n👤 **نام:** `{user.first_name}`\n━━━━━━━━━━━━━━━━━━━━"
+            info = f"👤 **اطلاعات کاربر** 💎🪞\n━━━━━━━━━━━━━━━━━━━━\n👤 **نام:** `{user.first_name}`\n━━━━━━━━━━━━━━━━━━━━"
             try:
-                kb = [[InlineKeyboardButton(text=f"📋 شناسه: {user.id} 🆔", copy_text=CopyTextButton(text=str(user.id)))],[InlineKeyboardButton(text=f"📋 مدل: {cur_model} 🤖", copy_text=CopyTextButton(text=cur_model))],[InlineKeyboardButton("⬅️ بازگشت", callback_data="back_main")]]
-            except:
-                kb = [[InlineKeyboardButton(text=f"📋 شناسه: {user.id} 🆔", callback_data="back_main")],[InlineKeyboardButton(text=f"📋 مدل: {cur_model} 🤖", callback_data="back_main")],[InlineKeyboardButton("⬅️ بازگشت", callback_data="back_main")]]
+                kb = [
+                    [InlineKeyboardButton(text=f"📋 شناسه: {user.id} 🆔💎", copy_text=CopyTextButton(text=str(user.id)))],
+                    [InlineKeyboardButton(text=f"📋 مدل: {cur_model} 🤖✨", copy_text=CopyTextButton(text=cur_model))],
+                    [InlineKeyboardButton("⬅️ بازگشت", callback_data="back_main")]
+                ]
+            except Exception:
+                kb = [
+                    [InlineKeyboardButton(text=f"📋 شناسه: {user.id} 🆔💎", callback_data="back_main")],
+                    [InlineKeyboardButton(text=f"📋 مدل: {cur_model} 🤖✨", callback_data="back_main")],
+                    [InlineKeyboardButton("⬅️ بازگشت", callback_data="back_main")]
+                ]
             await query.edit_message_text(info, parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(kb))
         elif query.data == "more_services":
-            await query.edit_message_text("بخش ابزارها:", reply_markup=get_services_menu())
+            await query.edit_message_text("💎 **بخش ابزارها** ✨👇", parse_mode=ParseMode.MARKDOWN, reply_markup=get_services_menu())
         elif query.data == "gen_mode":
             context.user_data["awaiting_image"] = True
             await query.edit_message_text(IMAGE_MODE_MESSAGE, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت به منو", callback_data="back_main")]]))
@@ -188,19 +208,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["awaiting_image"] = False
             await query.edit_message_text(WELCOME_MESSAGE, reply_markup=get_main_menu(query.from_user.id))
         elif query.data == "change_model":
-            buttons = [[InlineKeyboardButton(f"{emoji} {model}", callback_data=f"set_{model}")] for model, emoji in MODELS_WITH_EMOJI.items()]
+            buttons = [[InlineKeyboardButton(f"{emoji} {model} 💎", callback_data=f"set_{model}")] for model, emoji in MODELS_WITH_EMOJI.items()]
             buttons.append([InlineKeyboardButton("🔙 بازگشت", callback_data="more_services")])
-            await query.edit_message_text("🔄 یک مدل برگزین:", reply_markup=InlineKeyboardMarkup(buttons))
+            await query.edit_message_text("🔵 **یک مدل برگزین:** ✨👑", parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(buttons))
         elif query.data.startswith("set_"):
             new_model = query.data[4:]
             context.user_data["model"] = new_model
             emoji = MODELS_WITH_EMOJI.get(new_model, "✅")
-            await query.edit_message_text(f"{emoji} مدل با موفقیت به {new_model} دگرگون شد!", reply_markup=get_main_menu(query.from_user.id))
+            await query.edit_message_text(f"{emoji} مدل با موفقیت به **{new_model}** دگرگون شد! 💎✨", parse_mode=ParseMode.MARKDOWN, reply_markup=get_main_menu(query.from_user.id))
         elif query.data == "admin_panel":
             if not is_admin(query.from_user.id):
                 await query.answer("⛔ دسترسی ندارید", show_alert=True)
                 return
-            await query.edit_message_text("👑 **پنل مدیریت مالک**", parse_mode=ParseMode.MARKDOWN, reply_markup=get_admin_menu())
+            await query.edit_message_text("👑 **پنل مدیریت مالک** 💎", parse_mode=ParseMode.MARKDOWN, reply_markup=get_admin_menu())
         elif query.data == "admin_users":
             if not is_admin(query.from_user.id):
                 return
@@ -211,9 +231,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             buttons = []
             for uid, name, username, last_seen in users[:20]:
                 ustr = f"@{username}" if username else "بدون یوزرنیم"
-                buttons.append([InlineKeyboardButton(f"{name} | {ustr} | {uid}", callback_data=f"admin_view_{uid}")])
+                buttons.append([InlineKeyboardButton(f"{name} | {ustr} | {uid} 💎", callback_data=f"admin_view_{uid}")])
             buttons.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")])
-            await query.edit_message_text(f"👥 **لیست کاربران ({len(users)} نفر):**", parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(buttons))
+            await query.edit_message_text(f"👥 **لیست کاربران ({len(users)} نفر):** 💎", parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(buttons))
         elif query.data == "admin_recent":
             if not is_admin(query.from_user.id):
                 return
@@ -221,7 +241,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not rows:
                 await query.edit_message_text("هنوز پیامی ثبت نشده.", reply_markup=get_admin_menu())
                 return
-            text = "💬 **آخرین پیام‌ها:**\n━━━━━━━━━━━━\n"
+            text = "💬 **آخرین پیام‌ها:** ✨\n━━━━━━━━━━━━\n"
             users_map = {u[0]: u for u in get_all_users()}
             for uid, role, msg_text, t in rows:
                 info = users_map.get(uid, (uid, "?", "", ""))
@@ -232,7 +252,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not is_admin(query.from_user.id):
                 return
             uc, mc = get_stats()
-            await query.edit_message_text(f"📊 **آمار ربات**\n👥 کاربران: {uc}\n💬 پیام‌ها: {mc}\n👑 مالک: `{OWNER_ID}`", parse_mode=ParseMode.MARKDOWN, reply_markup=get_admin_menu())
+            await query.edit_message_text(f"📊 **آمار ربات** 💎\n👥 کاربران: {uc}\n💬 پیام‌ها: {mc}\n👑 مالک: `{OWNER_ID}`", parse_mode=ParseMode.MARKDOWN, reply_markup=get_admin_menu())
         elif query.data.startswith("admin_view_"):
             if not is_admin(query.from_user.id):
                 return
@@ -255,13 +275,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 full = header + "پیامی یافت نشد"
             try:
                 await query.edit_message_text(full, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 لیست", callback_data="admin_users")],[InlineKeyboardButton("🏠 پنل", callback_data="admin_panel")]]))
-            except:
+            except Exception:
                 await query.edit_message_text(full, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 لیست", callback_data="admin_users")]]))
     except Exception as e:
         logging.error(f"button error: {e}", exc_info=True)
         try:
-            await query.edit_message_text("❌ خطایی رخ داد، دوباره /start بزن", reply_markup=get_main_menu(query.from_user.id))
-        except:
+            await query.edit_message_text("❌ خطایی رخ داد، دوباره /start بزن 💎", reply_markup=get_main_menu(query.from_user.id))
+        except Exception:
             pass
 
 async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE, prompt: str = None):
@@ -270,7 +290,7 @@ async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
     user = update.effective_user
     save_user(user)
     save_message(user.id, "user", f"[IMAGE] {prompt}")
-    status = await update.message.reply_text("⏳ در حال پردازش... ✨\nتصویرت در حال ساخته شدنه 🎨")
+    status = await update.message.reply_text("⏳ در حال پردازش... ✨💎\nتصویرت در حال ساخته شدنه 🎨👑")
     try:
         model = context.user_data.get("model", DEFAULT_MODEL)
         async with httpx.AsyncClient(timeout=90.0) as client:
@@ -288,9 +308,9 @@ async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
                     await notify_admins(context, user, prompt, "[عکس ارسال شد]")
                     try:
                         await status.delete()
-                    except:
+                    except Exception:
                         pass
-                    await update.message.reply_photo(photo=img, caption="🖼️ تصویر با موفقیت ساخته شد ✅✨")
+                    await update.message.reply_photo(photo=img, caption="🖼️ تصویر با موفقیت ساخته شد ✅✨💎")
                     return
                 except Exception as e:
                     logging.error(f"b64 decode failed: {e}")
@@ -299,7 +319,7 @@ async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
                 await notify_admins(context, user, prompt, urls[0])
                 try:
                     await status.delete()
-                except:
+                except Exception:
                     pass
                 for url in urls:
                     await send_image_url_as_photo(update, url)
@@ -308,8 +328,8 @@ async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
     except Exception as e:
         logging.error(f"Image error: {e}", exc_info=True)
         try:
-            await status.edit_text(f"❌ خطا در ساخت تصویر: {str(e)}")
-        except:
+            await status.edit_text(f"❌ خطا در ساخت تصویر: {str(e)} 💎")
+        except Exception:
             await update.message.reply_text(f"❌ خطا در ساخت تصویر: {str(e)}")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -333,7 +353,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_image_prompt(update, context, prompt)
         return
     save_message(user.id, "user", text)
-    status = await update.message.reply_text("⏳ در حال پردازش... ✨\nلطفا کمی صبر کن 🤖💭")
+    status = await update.message.reply_text("⏳ در حال پردازش... ✨💎\nلطفا کمی صبر کن 🤖💭👑")
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
             payload = {"model": context.user_data.get("model", DEFAULT_MODEL), "messages": [{"role": "system", "content": f"You are GPT-5.6 Sol developed by OpenAI. {BEAUTIFY_INSTRUCTION}"}, {"role": "user", "content": text}]}
@@ -345,21 +365,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await notify_admins(context, user, text, answer)
             try:
                 await status.delete()
-            except:
+            except Exception:
                 pass
             urls = extract_image_urls(answer)
             img_urls = [u for u in urls if any(x in u.lower() for x in [".png",".jpg",".jpeg",".webp","image","cdn","dall"])]
-            if img_urls:
-                for url in img_urls:
-                    await send_image_url_as_photo(update, url)
-                txt = re.sub(r"https?://[^\s\)\]]+", "", answer).strip()
-                if txt:
-                    try:
-                        await update.message.reply_text(txt, parse_mode=ParseMode.MARKDOWN)
-                    except:
-                        await update.message.reply_text(txt)
-                return
-            try:
-                await update.message.reply_text(answer, parse_mode=ParseMode.MARKDOWN)
-            except:
-               
+         
