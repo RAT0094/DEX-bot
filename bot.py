@@ -236,7 +236,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 await query.edit_message_text("❌ مدل نامعتبر است.", reply_markup=get_main_menu(user.id))
         elif data == "about":
-            await query.edit_message_text("💎 ربات هوش مصنوعی پیشرفته\nقدرت گرفته از CleanAPIs و مدل‌های مدرن هوش مصنوعی.\nطراحی شده برای سرعت و دقت بالا. 🚀✨", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]]))
+            await query.edit_message_text("💎 ربات هوش مصنوعی پیشرفته\nقدرت گرفته توسط DEX.\nطراحی شده برای سرعت و دقت بالا. 🚀✨", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]]))
         elif data == "admin_panel":
             if not is_admin(user.id):
                 await query.edit_message_text("⛔ دسترسی غیرمجاز!")
@@ -258,7 +258,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 name = fname or uname or str(u_id)
                 keyboard.append([InlineKeyboardButton(f"👤 {name} ({u_id})", callback_data=f"admin_view_{u_id}")])
             keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")])
-            await query.edit_message_text("👥 لیست کاربران ربات:", reply_markup=InlineKeyboardMarkup(keyboard))
+            await query.edit_message_text("👥 کاربران ربات:", reply_markup=InlineKeyboardMarkup(keyboard))
         elif data == "admin_recent":
             if not is_admin(user.id):
                 return
@@ -300,7 +300,7 @@ async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
                 "messages": [
                     {
                         "role": "system",
-                        "content": f"You are GPT-5.6 Sol developed by OpenAI. You are an image generator. {BEAUTIFY_INSTRUCTION} When user asks for image, generate image and return direct image URL."
+                        "content": f"You are an advanced AI assistant created by DEX. You are an image generator. {BEAUTIFY_INSTRUCTION} When user asks for image, generate image and return direct image URL."
                     },
                     {
                         "role": "user",
@@ -383,7 +383,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "messages": [
                     {
                         "role": "system",
-                        "content": f"You are GPT-5.6 Sol developed by OpenAI. {BEAUTIFY_INSTRUCTION}"
+                        "content": f"You are an advanced AI assistant created by DEX. If anyone asks who created you or who is your developer, always state that you were created and developed by DEX. {BEAUTIFY_INSTRUCTION}"
                     },
                     {
                         "role": "user",
@@ -439,3 +439,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
