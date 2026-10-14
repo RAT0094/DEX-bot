@@ -274,22 +274,16 @@ async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
     try:
         model = context.user_data.get("model", DEFAULT_MODEL)
         async with httpx.AsyncClient(timeout=90.0) as client:
-            payload = {
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": f"You are GPT-5.6 Sol developed by OpenAI. You are an image generator. {BEAUTIFY_INSTRUCTION} When user asks for image, generate image and return direct image URL."},
-                    {"role": "user", "content": f"این پرامپت را به تصویر تبدیل کن: {prompt}"}
-                ]
-            }
+            payload = {"model": model, "messages": [{"role": "system", "content": f"You are GPT-5.6 Sol developed by OpenAI. You are an image generator. {BEAUTIFY_INSTRUCTION} When user asks for image, generate image and return direct image URL."}, {"role": "user", "content": f"این پرامپت را به تصویر تبدیل کن: {prompt}"}]}
             headers = {"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"}
             r = await client.post(f"{CLEANAPIS_BASE_URL}/v1/chat/completions", headers=headers, json=payload)
             r.raise_for_status()
             answer = r.json()["choices"][0]["message"]["content"]
             urls = extract_image_urls(answer)
-            b64 = re.search(r"data:image/[^;]+;base64,([A-Za-z0-9+/=]+)", answer)
-            if b64:
+            b64_match = re.search(r"data:image/[^;]+;base64,([A-Za-z0-9+/=]+)", answer)
+            if b64_match:
                 try:
-                    img = base64.b64decode(b64.group(1))
+                    img = base64.b64decode(b64_match.group(1))
                     save_message(user.id, "assistant", "[IMAGE_SENT_B64]")
                     await notify_admins(context, user, prompt, "[عکس ارسال شد]")
                     try:
@@ -342,13 +336,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status = await update.message.reply_text("⏳ در حال پردازش... ✨\nلطفا کمی صبر کن 🤖💭")
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
-            payload = {
-                "model": context.user_data.get("model", DEFAULT_MODEL),
-                "messages": [
-                    {"role": "system", "content": f"You are GPT-5.6 Sol developed by OpenAI. {BEAUTIFY_INSTRUCTION}"},
-                    {"role": "user", "content": text}
-                ]
-            }
+            payload = {"model": context.user_data.get("model", DEFAULT_MODEL), "messages": [{"role": "system", "content": f"You are GPT-5.6 Sol developed by OpenAI. {BEAUTIFY_INSTRUCTION}"}, {"role": "user", "content": text}]}
             headers = {"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"}
             r = await client.post(f"{CLEANAPIS_BASE_URL}/v1/chat/completions", headers=headers, json=payload)
             r.raise_for_status()
@@ -370,4 +358,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         await update.message.reply_text(txt, parse_mode=ParseMode.MARKDOWN)
                     except:
                         await update.message.reply_text(txt)
-   
+                return
+            try:
+                await update.message.reply_text(answer, parse_mode=ParseMode.MARKDOWN)
+            except:
+               
