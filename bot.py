@@ -4,10 +4,12 @@ import re
 import logging
 import sqlite3
 import base64
+import asyncio
 from datetime import datetime
 from dotenv import load_dotenv
 load_dotenv()
 
+from aiohttp import web
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, CopyTextButton
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, ContextTypes, filters
 from telegram.helpers import escape_markdown
@@ -132,6 +134,21 @@ async def send_image_url_as_photo(update, url, caption="🖼️ تصویر با 
             logging.error(f"direct send failed {url}: {e2}")
             await update.message.reply_text(f"{caption}\n{url}")
             return False
+
+# --- Health Server برای Railway ---
+async def health_handler(request):
+    return web.Response(text="OK - Bot is running")
+
+async def start_health_server():
+    app_web = web.Application()
+    app_web.router.add_get("/", health_handler)
+    app_web.router.add_get("/health", health_handler)
+    runner = web.AppRunner(app_web)
+    await runner.setup()
+    port = int(os.getenv("PORT", 8080))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    logging.info(f"Health server listening on {port}")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if "model" not in context.user_data:
@@ -285,12 +302,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     user = update.effective_user
     save_user(user)
-
     if context.user_data.get("awaiting_image"):
         context.user_data["awaiting_image"] = False
         await handle_image_prompt(update, context, text)
         return
-
     if is_image_request(text):
         prompt = text
         for k in IMAGE_KEYWORDS:
@@ -301,7 +316,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 break
         await handle_image_prompt(update, context, prompt)
         return
-
     save_message(user.id, "user", text)
     status = await update.message.reply_text("⏳ در حال پردازش... ✨\nلطفا کمی صبر کن 🤖💭")
     try:
@@ -334,15 +348,4 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logging.error(f"Error: {context.error}", exc_info=context.error)
 
 async def post_init(app: Application):
-    await app.bot.delete_webhook(drop_pending_updates=True)
-    print("✅ Webhook پاک شد - polling فعال شد")
-
-def main():
-    init_db()
-    if not TELEGRAM_BOT_TOKEN or not CLEANAPIS_API_KEY:
-        print("❌ TELEGRAM_BOT_TOKEN یا CLEANAPIS_API_KEY تنظیم نشده!")
-        print(f"TOKEN exists: {bool(TELEGRAM_BOT_TOKEN)}, API exists: {bool(CLEANAPIS_API_KEY)}")
-        return
-    app = Application.builder().token(TELEGRAM_BOT_TOKEN).post_init(post_init).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("admin", admin_c
+    await
