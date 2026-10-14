@@ -347,5 +347,4 @@ def main():
         return
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).post_init(post_init).build()
     conv = ConversationHandler(
-        entry_points=[
-    
+        entry_points=[Comma
