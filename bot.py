@@ -284,72 +284,97 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
-# ----------------- هندلرهای پیام‌ها و تصاویر -----------------
+# ----------------- هندلرهای تصاویر و پیام‌ها (همراه با Retry هوشمند) -----------------
 async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE, prompt: str = None):
     if prompt is None:
         prompt = update.message.text or ""
     user = update.effective_user
     save_user(user)
     save_message(user.id, "user", f"[IMAGE] {prompt}")
-    status = await update.message.reply_text("⏳ در حال پردازش... ✨💎\nتصویرت در حال ساخته شدنه 🎨👑")
-    try:
-        model = context.user_data.get("model", DEFAULT_MODEL)
-        async with httpx.AsyncClient(timeout=90.0) as client:
-            payload = {
-                "model": model,
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": f"You are an advanced AI assistant created by DEX. You are an image generator. {BEAUTIFY_INSTRUCTION} When user asks for image, generate image and return direct image URL."
-                    },
-                    {
-                        "role": "user",
-                        "content": f"این پرامپت را به تصویر تبدیل کن: {prompt}"
-                    }
-                ]
-            }
-            headers = {
-                "Authorization": f"Bearer {CLEANAPIS_API_KEY}",
-                "Content-Type": "application/json"
-            }
-            r = await client.post(f"{CLEANAPIS_BASE_URL}/v1/chat/completions", headers=headers, json=payload)
-            r.raise_for_status()
-            answer = r.json()["choices"][0]["message"]["content"]
-            urls = extract_image_urls(answer)
-            b64_match = re.search(r"data:image/[^;]+;base64,([A-Za-z0-9+/=]+)", answer)
-            if b64_match:
+    status = await update.message.reply_text("⏳ در حال پردازش تصویر... ✨💎\nدسترسی به سرور گرافیکی 🎨")
+    
+    max_retries = 3
+    retry_delay = 3
+    answer = None
+    
+    for attempt in range(1, max_retries + 1):
+        try:
+            model = context.user_data.get("model", DEFAULT_MODEL)
+            async with httpx.AsyncClient(timeout=90.0) as client:
+                payload = {
+                    "model": model,
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": f"You are an advanced AI assistant created by DEX. You are an image generator. {BEAUTIFY_INSTRUCTION} When user asks for image, generate image and return direct image URL."
+                        },
+                        {
+                            "role": "user",
+                            "content": f"این پرامپت را به تصویر تبدیل کن: {prompt}"
+                        }
+                    ]
+                }
+                headers = {
+                    "Authorization": f"Bearer {CLEANAPIS_API_KEY}",
+                    "Content-Type": "application/json"
+                }
+                r = await client.post(f"{CLEANAPIS_BASE_URL}/v1/chat/completions", headers=headers, json=payload)
+                
+                if r.status_code in [502, 503, 504, 520, 522, 524]:
+                    raise httpx.HTTPStatusError(f"Server error {r.status_code}", request=r.request, response=r)
+                
+                r.raise_for_status()
+                answer = r.json()["choices"][0]["message"]["content"]
+                break
+        except Exception as e:
+            logging.warning(f"Image attempt {attempt} failed: {e}")
+            if attempt < max_retries:
                 try:
-                    img = base64.b64decode(b64_match.group(1))
-                    save_message(user.id, "assistant", "[IMAGE_SENT_B64]")
-                    await notify_admins(context, user, prompt, "[عکس ارسال شد]")
-                    try:
-                        await status.delete()
-                    except Exception:
-                        pass
-                    await update.message.reply_photo(photo=img, caption="🖼️ تصویر با موفقیت ساخته شد ✅✨💎")
-                    return
-                except Exception as e:
-                    logging.error(f"b64 decode failed: {e}")
-            if urls:
-                save_message(user.id, "assistant", urls[0])
-                await notify_admins(context, user, prompt, urls[0])
+                    await status.edit_text(f"⚠️ سرور تصویرسازی شلوغه (تلاش {attempt}/{max_retries}). چند ثانیه صبر کن... 🔄")
+                except Exception:
+                    pass
+                await asyncio.sleep(retry_delay)
+                retry_delay += 2
+            else:
                 try:
                     await status.delete()
                 except Exception:
                     pass
-                for url in urls:
-                    await send_image_url_as_photo(update, url)
+                await update.message.reply_text(f"❌ خطا در ساخت تصویر بعد از چند تلاش (خطای سرور): {str(e)} 💎")
                 return
-            raise ValueError(f"مدل عکسی برنگرداند: {answer[:500]}")
-    except Exception as e:
-        logging.error(f"Image error: {e}", exc_info=True)
-        try:
-            await status.edit_text(f"❌ خطا در ساخت تصویر: {str(e)} 💎")
-        except Exception:
+
+    if answer:
+        urls = extract_image_urls(answer)
+        b64_match = re.search(r"data:image/[^;]+;base64,([A-Za-z0-9+/=]+)", answer)
+        if b64_match:
             try:
-                await update.message.reply_text(f"❌ خطا در ساخت تصویر: {str(e)}")
+                img = base64.b64decode(b64_match.group(1))
+                save_message(user.id, "assistant", "[IMAGE_SENT_B64]")
+                await notify_admins(context, user, prompt, "[عکس ارسال شد]")
+                try:
+                    await status.delete()
+                except Exception:
+                    pass
+                await update.message.reply_photo(photo=img, caption="🖼️ تصویر با موفقیت ساخته شد ✅✨💎")
+                return
+            except Exception as e:
+                logging.error(f"b64 decode failed: {e}")
+        if urls:
+            save_message(user.id, "assistant", urls[0])
+            await notify_admins(context, user, prompt, urls[0])
+            try:
+                await status.delete()
             except Exception:
                 pass
+            for url in urls:
+                await send_image_url_as_photo(update, url)
+            return
+        
+        try:
+            await status.delete()
+        except Exception:
+            pass
+        await update.message.reply_text(f"🖼️ پاسخ مدل:\n{answer}")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
@@ -375,46 +400,65 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
         
     save_message(user.id, "user", text)
-    status = await update.message.reply_text("⏳ در حال پردازش... ✨💎\nلطفا کمی صبر کن 🤖💭👑")
-    try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            payload = {
-                "model": context.user_data.get("model", DEFAULT_MODEL),
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": f"You are an advanced AI assistant created by DEX. If anyone asks who created you or who is your developer, always state that you were created and developed by DEX. {BEAUTIFY_INSTRUCTION}"
-                    },
-                    {
-                        "role": "user",
-                        "content": text
-                    }
-                ]
-            }
-            headers = {
-                "Authorization": f"Bearer {CLEANAPIS_API_KEY}",
-                "Content-Type": "application/json"
-            }
-            r = await client.post(f"{CLEANAPIS_BASE_URL}/v1/chat/completions", headers=headers, json=payload)
-            r.raise_for_status()
-            answer = r.json()["choices"][0]["message"]["content"]
-            save_message(user.id, "assistant", answer)
-            await notify_admins(context, user, text, answer)
-            
-            try:
-                await status.delete()
-            except Exception:
-                pass
-            await update.message.reply_text(answer)
-    except Exception as e:
-        logging.error(f"AI message error: {e}", exc_info=True)
+    status = await update.message.reply_text("⏳ در حال پردازش... ✨💎\nلطفا کمی صبر کن (در صورت قطعی سرور، خودم چند بار تلاش می‌کنم) 🤖💭👑")
+    
+    max_retries = 3
+    retry_delay = 2
+    answer = None
+    
+    for attempt in range(1, max_retries + 1):
         try:
-            await status.edit_text(f"❌ خطا در پردازش درخواست: {str(e)} 💎")
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                payload = {
+                    "model": context.user_data.get("model", DEFAULT_MODEL),
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": f"You are an advanced AI assistant created by DEX. If anyone asks who created you or who is your developer, always state that you were created and developed by DEX. {BEAUTIFY_INSTRUCTION}"
+                        },
+                        {
+                            "role": "user",
+                            "content": text
+                        }
+                    ]
+                }
+                headers = {
+                    "Authorization": f"Bearer {CLEANAPIS_API_KEY}",
+                    "Content-Type": "application/json"
+                }
+                r = await client.post(f"{CLEANAPIS_BASE_URL}/v1/chat/completions", headers=headers, json=payload)
+                
+                if r.status_code in [502, 503, 504, 520, 522, 524]:
+                    raise httpx.HTTPStatusError(f"Server error {r.status_code}", request=r.request, response=r)
+                
+                r.raise_for_status()
+                answer = r.json()["choices"][0]["message"]["content"]
+                break
+        except Exception as e:
+            logging.warning(f"Attempt {attempt} failed for user {user.id}: {e}")
+            if attempt < max_retries:
+                try:
+                    await status.edit_text(f"⚠️ سرور شلوغه یا جواب نمیده (تلاش {attempt}/{max_retries}). چند ثانیه صبر کن... 🔄")
+                except Exception:
+                    pass
+                await asyncio.sleep(retry_delay)
+                retry_delay += 2
+            else:
+                try:
+                    await status.delete()
+                except Exception:
+                    pass
+                await update.message.reply_text("❌ سرور CleanAPIs فعلاً قطعه یا خطای ۵۰۳ میده. لطفاً چند لحظه دیگه دوباره تلاش کن دکستر جان! 💎")
+                return
+
+    if answer:
+        save_message(user.id, "assistant", answer)
+        await notify_admins(context, user, text, answer)
+        try:
+            await status.delete()
         except Exception:
-            try:
-                await update.message.reply_text(f"❌ خطا در پردازش درخواست: {str(e)}")
-            except Exception:
-                pass
+            pass
+        await update.message.reply_text(answer)
 
 # ----------------- تابع اصلی اجرای ربات -----------------
 def main():
@@ -423,20 +467,7 @@ def main():
     
     init_db()
     
-    # راه‌اندازی اپلیکیشن تلگرام
     application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("admin", admin_command))
-    application.add_handler(CallbackQueryHandler(button_handler))
-    application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
-
-    loop = asyncio.get_event_loop()
-    loop.create_task(start_health_server())
-
-    logging.info("Bot is starting polling... 🚀💎")
-    application.run_polling()
-
-if __name__ == "__main__":
-    main()
-    
+    application.add_h
