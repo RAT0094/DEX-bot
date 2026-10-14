@@ -135,7 +135,6 @@ async def send_image_url_as_photo(update, url, caption="🖼️ تصویر با 
             await update.message.reply_text(f"{caption}\n{url}")
             return False
 
-# --- Health Server برای Railway ---
 async def health_handler(request):
     return web.Response(text="OK - Bot is running")
 
@@ -348,4 +347,4 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logging.error(f"Error: {context.error}", exc_info=context.error)
 
 async def post_init(app: Application):
-    await
+    await app.bot.delete_webhook(drop_pending_
