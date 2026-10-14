@@ -5,8 +5,11 @@ import logging
 import sqlite3
 import base64
 from datetime import datetime
+from dotenv import load_dotenv
+load_dotenv()
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, CopyTextButton
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, ContextTypes, filters, ConversationHandler
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, ContextTypes, filters
 from telegram.helpers import escape_markdown
 from telegram.constants import ParseMode
 
@@ -68,9 +71,33 @@ def get_last_messages(limit=10):
 def is_admin(uid: int) -> bool:
     return uid in ADMIN_IDS
 
+MODELS_WITH_EMOJI = {"gpt-5.6-luna": "🌙","claude-opus-5.5": "🎭","gpt-5.5": "⚡","gpt-5.5-pro": "🚀","claude-fable-5": "📖","claude-fable-5.1": "✨"}
+WELCOME_MESSAGE = "سلام دوست عزیز، چه کمکی از دستم برمی‌آید؟\n\n✨ خوش آمدید"
+IMAGE_MODE_MESSAGE = "🎨 حالت ساخت تصویر فعال شد!\nتوصیف تصویرت را بفرست."
+BEAUTIFY_INSTRUCTION = "همیشه این قوانین نگارشی را رعایت کن: 1. در همه پیام‌ها از ایموجی مرتبط استفاده کن 2. اسم بازی، فیلم، کتاب یا اصطلاحات خاص را حتما با **Bold** نمایش بده. 3. اگر کد می‌دهی حتما داخل بلاک کد قرار بده."
+IMAGE_KEYWORDS = ["عکس بساز", "تصویر بساز", "عکس بکش", "تصویر بکش", "عکس درست کن", "تصویر درست کن", "عکسم رو", "پرامپت عکس", "generate image", "create image", "draw image", "make image"]
+
+def is_image_request(text: str) -> bool:
+    if not text: return False
+    return any(k in text.lower() for k in IMAGE_KEYWORDS)
+
+def extract_image_urls(text: str):
+    return re.findall(r"https?://[^\s\)\]]+", text)
+
+def get_main_menu(user_id=None):
+    buttons = [[InlineKeyboardButton("⚪ اطلاعات کاربر", callback_data="user_info")],[InlineKeyboardButton("🟢 ابزارها", callback_data="more_services")]]
+    if user_id and is_admin(user_id):
+        buttons.append([InlineKeyboardButton("👑 پنل ادمین", callback_data="admin_panel")])
+    return InlineKeyboardMarkup(buttons)
+
+def get_services_menu():
+    return InlineKeyboardMarkup([[InlineKeyboardButton("🎨 ساخت تصویر", callback_data="gen_mode")],[InlineKeyboardButton("🔄 تغییر مدل", callback_data="change_model")],[InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")]])
+
+def get_admin_menu():
+    return InlineKeyboardMarkup([[InlineKeyboardButton("👥 لیست کاربران", callback_data="admin_users")],[InlineKeyboardButton("💬 آخرین پیام‌ها (10)", callback_data="admin_recent")],[InlineKeyboardButton("📊 آمار", callback_data="admin_stats")],[InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")]])
+
 async def notify_admins(context, user, user_text, bot_answer=None):
-    if is_admin(user.id):
-        return
+    if is_admin(user.id): return
     try:
         username = f"@{user.username}" if user.username else "بدون یوزرنیم"
         safe_name = escape_markdown(user.first_name or "کاربر", version=2)
@@ -85,25 +112,9 @@ async def notify_admins(context, user, user_text, bot_answer=None):
             except:
                 try:
                     await context.bot.send_message(chat_id=aid, text=f"پیام از {user.first_name} ({user.id}):\n{user_text[:1000]}")
-                except:
-                    pass
+                except: pass
     except Exception as e:
         logging.error(f"notify error: {e}")
-
-MODELS_WITH_EMOJI = {"gpt-5.6-luna": "🌙","claude-opus-5.5": "🎭","gpt-5.5": "⚡","gpt-5.5-pro": "🚀","claude-fable-5": "📖","claude-fable-5.1": "✨"}
-CHOOSING, GENERATING_IMAGE = range(2)
-WELCOME_MESSAGE = "سلام دوست عزیز، چه کمکی از دستم برمی‌آید؟\n\n✨ خوش آمدید"
-IMAGE_MODE_MESSAGE = "🎨 حالت ساخت تصویر فعال شد!\nتوصیف تصویرت را بفرست."
-BEAUTIFY_INSTRUCTION = "همیشه این قوانین نگارشی را رعایت کن: 1. در همه پیام‌ها از ایموجی مرتبط استفاده کن 2. اسم بازی، فیلم، کتاب یا اصطلاحات خاص را حتما با **Bold** نمایش بده. 3. اگر کد می‌دهی حتما داخل بلاک کد قرار بده."
-IMAGE_KEYWORDS = ["عکس بساز", "تصویر بساز", "عکس بکش", "تصویر بکش", "عکس درست کن", "تصویر درست کن", "عکسم رو", "پرامپت عکس", "generate image", "create image", "draw image", "make image"]
-
-def is_image_request(text: str) -> bool:
-    if not text:
-        return False
-    return any(k in text.lower() for k in IMAGE_KEYWORDS)
-
-def extract_image_urls(text: str):
-    return re.findall(r"https?://[^\s\)\]]+", text)
 
 async def send_image_url_as_photo(update, url, caption="🖼️ تصویر با موفقیت ساخته شد ✅✨"):
     try:
@@ -122,25 +133,13 @@ async def send_image_url_as_photo(update, url, caption="🖼️ تصویر با 
             await update.message.reply_text(f"{caption}\n{url}")
             return False
 
-def get_main_menu(user_id=None):
-    buttons = [[InlineKeyboardButton("⚪ اطلاعات کاربر", callback_data="user_info")],[InlineKeyboardButton("🟢 ابزارها", callback_data="more_services")]]
-    if user_id and is_admin(user_id):
-        buttons.append([InlineKeyboardButton("👑 پنل ادمین", callback_data="admin_panel")])
-    return InlineKeyboardMarkup(buttons)
-
-def get_services_menu():
-    return InlineKeyboardMarkup([[InlineKeyboardButton("🎨 ساخت تصویر", callback_data="gen_mode")],[InlineKeyboardButton("🔄 تغییر مدل", callback_data="change_model")],[InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")]])
-
-def get_admin_menu():
-    return InlineKeyboardMarkup([[InlineKeyboardButton("👥 لیست کاربران", callback_data="admin_users")],[InlineKeyboardButton("💬 آخرین پیام‌ها (10)", callback_data="admin_recent")],[InlineKeyboardButton("📊 آمار", callback_data="admin_stats")],[InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")]])
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if "model" not in context.user_data:
         context.user_data["model"] = DEFAULT_MODEL
+    context.user_data["awaiting_image"] = False
     if update.effective_user:
         save_user(update.effective_user)
-        await update.message.reply_text(WELCOME_MESSAGE, reply_markup=get_main_menu(update.effective_user.id))
-    return CHOOSING
+    await update.message.reply_text(WELCOME_MESSAGE, reply_markup=get_main_menu(update.effective_user.id if update.effective_user else None))
 
 async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
@@ -161,52 +160,46 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except:
                 kb = [[InlineKeyboardButton(text=f"📋 شناسه: {user.id} 🆔", callback_data="back_main")],[InlineKeyboardButton(text=f"📋 مدل: {cur_model} 🤖", callback_data="back_main")],[InlineKeyboardButton("⬅️ بازگشت", callback_data="back_main")]]
             await query.edit_message_text(info, parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(kb))
-            return CHOOSING
         elif query.data == "more_services":
             await query.edit_message_text("بخش ابزارها:", reply_markup=get_services_menu())
-            return CHOOSING
         elif query.data == "gen_mode":
+            context.user_data["awaiting_image"] = True
             await query.edit_message_text(IMAGE_MODE_MESSAGE, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت به منو", callback_data="back_main")]]))
-            return GENERATING_IMAGE
         elif query.data == "back_main":
+            context.user_data["awaiting_image"] = False
             await query.edit_message_text(WELCOME_MESSAGE, reply_markup=get_main_menu(query.from_user.id))
-            return CHOOSING
         elif query.data == "change_model":
             buttons = [[InlineKeyboardButton(f"{emoji} {model}", callback_data=f"set_{model}")] for model, emoji in MODELS_WITH_EMOJI.items()]
             buttons.append([InlineKeyboardButton("🔙 بازگشت", callback_data="more_services")])
             await query.edit_message_text("🔄 یک مدل برگزین:", reply_markup=InlineKeyboardMarkup(buttons))
-            return CHOOSING
         elif query.data.startswith("set_"):
             new_model = query.data[4:]
             context.user_data["model"] = new_model
             emoji = MODELS_WITH_EMOJI.get(new_model, "✅")
             await query.edit_message_text(f"{emoji} مدل با موفقیت به {new_model} دگرگون شد!", reply_markup=get_main_menu(query.from_user.id))
-            return CHOOSING
         elif query.data == "admin_panel":
             if not is_admin(query.from_user.id):
                 await query.answer("⛔ دسترسی ندارید", show_alert=True)
-                return CHOOSING
+                return
             await query.edit_message_text("👑 **پنل مدیریت مالک**", parse_mode=ParseMode.MARKDOWN, reply_markup=get_admin_menu())
-            return CHOOSING
         elif query.data == "admin_users":
-            if not is_admin(query.from_user.id): return CHOOSING
+            if not is_admin(query.from_user.id): return
             users = get_all_users()
             if not users:
                 await query.edit_message_text("هنوز کاربری پیامی نداده.", reply_markup=get_admin_menu())
-                return CHOOSING
+                return
             buttons = []
             for uid, name, username, last_seen in users[:20]:
                 ustr = f"@{username}" if username else "بدون یوزرنیم"
                 buttons.append([InlineKeyboardButton(f"{name} | {ustr} | {uid}", callback_data=f"admin_view_{uid}")])
             buttons.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")])
             await query.edit_message_text(f"👥 **لیست کاربران ({len(users)} نفر):**", parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(buttons))
-            return CHOOSING
         elif query.data == "admin_recent":
-            if not is_admin(query.from_user.id): return CHOOSING
+            if not is_admin(query.from_user.id): return
             rows = get_last_messages(10)
             if not rows:
                 await query.edit_message_text("هنوز پیامی ثبت نشده.", reply_markup=get_admin_menu())
-                return CHOOSING
+                return
             text = "💬 **آخرین پیام‌ها:**\n━━━━━━━━━━━━\n"
             users_map = {u[0]: u for u in get_all_users()}
             for uid, role, msg_text, t in rows:
@@ -214,21 +207,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 dash = "-"
                 text += f"👤 {info[1]} (`{uid}`) @{info[2] or dash}\n> {msg_text[:60]}...\n\n"
             await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=get_admin_menu())
-            return CHOOSING
         elif query.data == "admin_stats":
-            if not is_admin(query.from_user.id): return CHOOSING
+            if not is_admin(query.from_user.id): return
             uc, mc = get_stats()
             await query.edit_message_text(f"📊 **آمار ربات**\n👥 کاربران: {uc}\n💬 پیام‌ها: {mc}\n👑 مالک: `{OWNER_ID}`", parse_mode=ParseMode.MARKDOWN, reply_markup=get_admin_menu())
-            return CHOOSING
         elif query.data.startswith("admin_view_"):
-            if not is_admin(query.from_user.id): return CHOOSING
+            if not is_admin(query.from_user.id): return
             uid = int(query.data.replace("admin_view_", ""))
             logs = get_user_logs(uid, 15)
             with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
                 row = conn.execute("SELECT name, username FROM users WHERE user_id=?", (uid,)).fetchone()
             if not row:
                 await query.edit_message_text("چتی یافت نشد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_users")]]))
-                return CHOOSING
+                return
             name, username = row
             fallback_name = "بدون یوزرنیم"
             header = f"👤 **چت کاربر:** {escape_markdown(name, version=2)}\n🆔 `{uid}`\n🔗 @{escape_markdown(username or fallback_name, version=2)}\n━━━━━━━━━━━━\n"
@@ -242,13 +233,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.edit_message_text(full, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 لیست", callback_data="admin_users")],[InlineKeyboardButton("🏠 پنل", callback_data="admin_panel")]]))
             except:
                 await query.edit_message_text(full, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 لیست", callback_data="admin_users")]]))
-            return CHOOSING
     except Exception as e:
         logging.error(f"button error: {e}", exc_info=True)
         try:
             await query.edit_message_text("❌ خطایی رخ داد، دوباره /start بزن", reply_markup=get_main_menu(query.from_user.id))
         except: pass
-        return CHOOSING
 
 async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE, prompt: str = None):
     if prompt is None:
@@ -273,7 +262,7 @@ async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
                     try: await status.delete()
                     except: pass
                     await update.message.reply_photo(photo=img, caption="🖼️ تصویر با موفقیت ساخته شد ✅✨")
-                    return GENERATING_IMAGE
+                    return
                 except Exception as e:
                     logging.error(f"b64 decode failed: {e}")
             if urls:
@@ -283,20 +272,25 @@ async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
                 except: pass
                 for url in urls:
                     await send_image_url_as_photo(update, url)
-                return GENERATING_IMAGE
+                return
             raise ValueError(f"مدل عکسی برنگرداند: {answer[:500]}")
     except Exception as e:
         logging.error(f"Image error: {e}", exc_info=True)
         try: await status.edit_text(f"❌ خطا در ساخت تصویر: {str(e)}")
         except: await update.message.reply_text(f"❌ خطا در ساخت تصویر: {str(e)}")
-    return GENERATING_IMAGE
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
-        return CHOOSING
+        return
     text = update.message.text
     user = update.effective_user
     save_user(user)
+
+    if context.user_data.get("awaiting_image"):
+        context.user_data["awaiting_image"] = False
+        await handle_image_prompt(update, context, text)
+        return
+
     if is_image_request(text):
         prompt = text
         for k in IMAGE_KEYWORDS:
@@ -305,7 +299,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if len(parts) > 1 and parts[-1].strip():
                     prompt = parts[-1].strip()
                 break
-        return await handle_image_prompt(update, context, prompt)
+        await handle_image_prompt(update, context, prompt)
+        return
+
     save_message(user.id, "user", text)
     status = await update.message.reply_text("⏳ در حال پردازش... ✨\nلطفا کمی صبر کن 🤖💭")
     try:
@@ -326,14 +322,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if txt:
                     try: await update.message.reply_text(txt, parse_mode=ParseMode.MARKDOWN)
                     except: await update.message.reply_text(txt)
-                return CHOOSING
+                return
             try: await update.message.reply_text(answer, parse_mode=ParseMode.MARKDOWN)
             except: await update.message.reply_text(answer)
     except Exception as e:
         logging.error(f"Message error: {e}", exc_info=True)
         try: await status.edit_text(f"❌ خطا در ارتباط با سرور: {str(e)}")
         except: await update.message.reply_text(f"❌ خطا در ارتباط با سرور: {str(e)}")
-    return CHOOSING
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logging.error(f"Error: {context.error}", exc_info=context.error)
@@ -346,5 +341,8 @@ def main():
     init_db()
     if not TELEGRAM_BOT_TOKEN or not CLEANAPIS_API_KEY:
         print("❌ TELEGRAM_BOT_TOKEN یا CLEANAPIS_API_KEY تنظیم نشده!")
+        print(f"TOKEN exists: {bool(TELEGRAM_BOT_TOKEN)}, API exists: {bool(CLEANAPIS_API_KEY)}")
         return
-    app = Application.builder().token(TELEGRAM_BOT_TOKEN).post_init(post_init).b
+    app = Application.builder().token(TELEGRAM_BOT_TOKEN).post_init(post_init).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("admin", admin_c
