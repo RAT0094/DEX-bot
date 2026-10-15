@@ -134,12 +134,13 @@ def is_image_request(text: str) -> bool:
     return any(kw in text.lower() for kw in IMAGE_KEYWORDS)
 
 def extract_image_urls(text: str):
-    found = re.findall(r\'https?://\S+|www\.\S+\', text)
-    image_extensions = (\'.png\', \'.jpg\', \'.jpeg\', \'.webp\', \'.gif\')
+    # فیکس شده: از " استفاده شد تا ارور \\' نده
+    found = re.findall(r"https?://\S+|www\.\S+", text)
+    image_extensions = (".png", ".jpg", ".jpeg", ".webp", ".gif")
     img_urls = []
     for u in found:
         low = u.lower()
-        if any(low.endswith(ext) for ext in image_extensions) or \'image\' in low or \'img\' in low or \'cleanapis\' in low:
+        if any(low.endswith(ext) for ext in image_extensions) or "image" in low or "img" in low or "cleanapis" in low:
             img_urls.append(u)
     return img_urls
 
