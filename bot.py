@@ -133,6 +133,11 @@ def is_admin(user_id: int) -> bool:
 def is_image_request(text: str) -> bool:
     return any(kw in text.lower() for kw in IMAGE_KEYWORDS)
 
+def is_explicit_image_request(text: str) -> bool:
+    low = text.lower()
+    triggers = ["عکس بساز", "تصویر بساز", "نقاشی بکش", "طراحی کن", "برام بکش", "برام بساز", "generate image", "create image", "draw "]
+    return any(t in low for t in triggers)
+
 def extract_image_urls(text: str):
     found = re.findall(r"https?://\S+|www\.\S+", text)
     image_extensions = (".png", ".jpg", ".jpeg", ".webp", ".gif")
@@ -208,6 +213,13 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⛔ دسترسی ندارید!")
         return
     await update.message.reply_text("👑 پنل مدیریت:", reply_markup=get_admin_menu())
+
+async def image_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    prompt = " ".join(context.args) if context.args else ""
+    if not prompt:
+        await update.message.reply_text("🎨 پرامپت رو بعد از دستور بنویس:\nمثال: /image a cute cat in space")
+        return
+    await handle_image_prompt(update, context, prompt)
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -316,22 +328,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     save_user(user)
 
-    # 1. حالت ساخت تصویر فقط با دکمه
     if context.user_data.get("awaiting_image"):
         context.user_data["awaiting_image"] = False
         await handle_image_prompt(update, context, text)
         return
 
-    # 2. دستور مستقیم برای تصویر
-    if text.startswith("/image") or text.startswith("/img"):
-        prompt = text.replace("/image", "", 1).replace("/img", "", 1).strip()
-        if not prompt:
-            await update.message.reply_text("🎨 پرامپت رو بعد از دستور بنویس:\nمثال: `/image a cute cat in space`")
-            return
-        await handle_image_prompt(update, context, prompt)
+    if is_explicit_image_request(text):
+        await handle_image_prompt(update, context, text)
         return
 
-    # 3. بقیه پیام ها فقط چت هستند - تشخیص خودکار عکس حذف شد
     save_message(user.id, "user", text)
     status = await update.message.reply_text("⏳ در حال پردازش... ✨💎")
     answer = None
@@ -382,6 +387,8 @@ def main():
     application.add_error_handler(error_handler)
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("admin", admin_command))
+    application.add_handler(CommandHandler("image", image_command))
+    application.add_handler(CommandHandler("img", image_command))
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     logger.info("Bot is starting... 🚀 Polling...")
