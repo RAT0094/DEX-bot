@@ -6,10 +6,17 @@ import logging
 import threading
 import asyncio
 import time
+import hmac
+import hashlib
+import json
 from datetime import datetime
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import parse_qsl, unquote
 import httpx
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+import uvicorn
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, ContextTypes, filters
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
@@ -22,10 +29,12 @@ DEFAULT_MODEL = "gpt-5.6-luna"
 OWNER_ID = 8163337709
 DB_PATH = "bot_memory.db"
 DATABASE_URL = os.getenv("DATABASE_URL")
+APP_URL = os.getenv("APP_URL", os.getenv("RAILWAY_PUBLIC_DOMAIN", ""))
+if APP_URL and not APP_URL.startswith("http"):
+    APP_URL = "https://" + APP_URL
 
 if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-
 IS_POSTGRES = bool(DATABASE_URL and "postgresql" in DATABASE_URL)
 
 BEAUTIFY_INSTRUCTION = "پاسخ‌ها را بسیار دقیق، زیبا، ساختاریافته، جذاب و با استفاده از ایموجی‌های مناسب به زبان فارسی روان ارائه بده."
@@ -37,7 +46,6 @@ MODELS_WITH_EMOJI = {
     "claude-fable-5": "📖💫",
     "claude-fable-5.1": "✨👑"
 }
-IMAGE_KEYWORDS = ["عکس", "تصویر", "نقاشی", "طراحی", "image", "draw", "paint"]
 
 # ----------------- دیتابیس هوشمند -----------------
 def get_conn():
@@ -48,108 +56,118 @@ def get_conn():
         return sqlite3.connect(DB_PATH, check_same_thread=False, timeout=10)
 
 def init_db():
-    try:
-        conn = get_conn()
-        cur = conn.cursor()
-        if IS_POSTGRES:
-            cur.execute("CREATE TABLE IF NOT EXISTS users (user_id BIGINT PRIMARY KEY, username TEXT, first_name TEXT, last_name TEXT, joined_at TEXT);")
-            cur.execute("CREATE TABLE IF NOT EXISTS messages (id SERIAL PRIMARY KEY, user_id BIGINT, role TEXT, content TEXT, timestamp TEXT);")
-        else:
-            cur.execute("CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, username TEXT, first_name TEXT, last_name TEXT, joined_at TEXT)")
-            cur.execute("CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, role TEXT, content TEXT, timestamp TEXT)")
-        conn.commit()
-        conn.close()
-        db_name = "PostgreSQL" if IS_POSTGRES else "SQLite"
-        logger.info(f"✅ Database initialized: {db_name}")
-    except Exception as e:
-        logger.error(f"❌ DB Init Failed: {e}", exc_info=True)
-        raise
+    conn = get_conn()
+    cur = conn.cursor()
+    if IS_POSTGRES:
+        cur.execute("CREATE TABLE IF NOT EXISTS users (user_id BIGINT PRIMARY KEY, username TEXT, first_name TEXT, last_name TEXT, joined_at TEXT);")
+        cur.execute("CREATE TABLE IF NOT EXISTS messages (id SERIAL PRIMARY KEY, user_id BIGINT, role TEXT, content TEXT, timestamp TEXT);")
+        cur.execute("CREATE TABLE IF NOT EXISTS conversations (id SERIAL PRIMARY KEY, user_id BIGINT, title TEXT, created_at TEXT, updated_at TEXT);")
+        cur.execute("CREATE TABLE IF NOT EXISTS chat_messages (id SERIAL PRIMARY KEY, conversation_id INTEGER, user_id BIGINT, role TEXT, content TEXT, timestamp TEXT);")
+    else:
+        cur.execute("CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, username TEXT, first_name TEXT, last_name TEXT, joined_at TEXT)")
+        cur.execute("CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, role TEXT, content TEXT, timestamp TEXT)")
+        cur.execute("CREATE TABLE IF NOT EXISTS conversations (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, title TEXT, created_at TEXT, updated_at TEXT)")
+        cur.execute("CREATE TABLE IF NOT EXISTS chat_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, conversation_id INTEGER, user_id INTEGER, role TEXT, content TEXT, timestamp TEXT)")
+    conn.commit()
+    conn.close()
+    db_name = "PostgreSQL" if IS_POSTGRES else "SQLite"
+    logger.info(f"✅ Database initialized: {db_name}")
 
 def save_user(user):
     try:
-        conn = get_conn()
-        cur = conn.cursor()
-        now = datetime.now().isoformat()
+        conn = get_conn(); cur = conn.cursor(); now = datetime.now().isoformat()
         if IS_POSTGRES:
             cur.execute("INSERT INTO users (user_id, username, first_name, last_name, joined_at) VALUES (%s,%s,%s,%s,%s) ON CONFLICT (user_id) DO UPDATE SET username=EXCLUDED.username, first_name=EXCLUDED.first_name, last_name=EXCLUDED.last_name", (user.id, user.username, user.first_name, user.last_name, now))
         else:
             cur.execute("INSERT OR REPLACE INTO users (user_id, username, first_name, last_name, joined_at) VALUES (?,?,?,?, COALESCE((SELECT joined_at FROM users WHERE user_id=?),?))", (user.id, user.username, user.first_name, user.last_name, user.id, now))
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        logger.error(f"save_user error: {e}")
+        conn.commit(); conn.close()
+    except Exception as e: logger.error(f"save_user error: {e}")
 
 def save_message(user_id, role, content):
     try:
-        conn = get_conn()
-        cur = conn.cursor()
+        conn = get_conn(); cur = conn.cursor()
         q = "INSERT INTO messages (user_id, role, content, timestamp) VALUES (%s,%s,%s,%s)" if IS_POSTGRES else "INSERT INTO messages (user_id, role, content, timestamp) VALUES (?,?,?,?)"
         cur.execute(q, (user_id, role, content, datetime.now().isoformat()))
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        logger.error(f"save_message error: {e}")
-
-def get_all_users():
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT user_id, username, first_name, joined_at FROM users")
-    rows = cur.fetchall()
-    conn.close()
-    return rows
-
-def get_user_logs(user_id, limit=20):
-    conn = get_conn()
-    cur = conn.cursor()
-    q = "SELECT role, content, timestamp FROM messages WHERE user_id=%s ORDER BY id DESC LIMIT %s" if IS_POSTGRES else "SELECT role, content, timestamp FROM messages WHERE user_id=? ORDER BY id DESC LIMIT ?"
-    cur.execute(q, (user_id, limit))
-    rows = cur.fetchall()
-    conn.close()
-    return rows[::-1]
+        conn.commit(); conn.close()
+    except Exception as e: logger.error(f"save_message error: {e}")
 
 def get_stats():
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT COUNT(*) FROM users")
-    uc = cur.fetchone()[0]
-    cur.execute("SELECT COUNT(*) FROM messages")
-    mc = cur.fetchone()[0]
-    conn.close()
-    return uc, mc
+    conn = get_conn(); cur = conn.cursor(); cur.execute("SELECT COUNT(*) FROM users"); uc = cur.fetchone()[0]; cur.execute("SELECT COUNT(*) FROM messages"); mc = cur.fetchone()[0]; conn.close(); return uc, mc
+
+def get_all_users():
+    conn = get_conn(); cur = conn.cursor(); cur.execute("SELECT user_id, username, first_name, joined_at FROM users"); rows = cur.fetchall(); conn.close(); return rows
 
 def get_last_messages(limit=10):
-    conn = get_conn()
-    cur = conn.cursor()
+    conn = get_conn(); cur = conn.cursor()
     q = "SELECT m.user_id, u.username, m.role, m.content, m.timestamp FROM messages m LEFT JOIN users u ON m.user_id=u.user_id ORDER BY m.id DESC LIMIT %s" if IS_POSTGRES else "SELECT m.user_id, u.username, m.role, m.content, m.timestamp FROM messages m LEFT JOIN users u ON m.user_id=u.user_id ORDER BY m.id DESC LIMIT ?"
-    cur.execute(q, (limit,))
-    rows = cur.fetchall()
-    conn.close()
-    return rows[::-1]
+    cur.execute(q, (limit,)); rows = cur.fetchall(); conn.close(); return rows[::-1]
 
-def is_admin(user_id: int) -> bool:
-    return user_id == OWNER_ID
+def get_user_logs(user_id, limit=20):
+    conn = get_conn(); cur = conn.cursor()
+    q = "SELECT role, content, timestamp FROM messages WHERE user_id=%s ORDER BY id DESC LIMIT %s" if IS_POSTGRES else "SELECT role, content, timestamp FROM messages WHERE user_id=? ORDER BY id DESC LIMIT ?"
+    cur.execute(q, (user_id, limit)); rows = cur.fetchall(); conn.close(); return rows[::-1]
 
-# ----------------- توابع کمکی -----------------
-def is_image_request(text: str) -> bool:
-    return any(kw in text.lower() for kw in IMAGE_KEYWORDS)
+def is_admin(uid: int) -> bool: return uid == OWNER_ID
+
+def create_conversation(user_id, title="چت جدید"):
+    conn = get_conn(); cur = conn.cursor(); now = datetime.now().isoformat()
+    if IS_POSTGRES:
+        cur.execute("INSERT INTO conversations (user_id, title, created_at, updated_at) VALUES (%s,%s,%s,%s) RETURNING id", (user_id, title, now, now)); cid = cur.fetchone()[0]
+    else:
+        cur.execute("INSERT INTO conversations (user_id, title, created_at, updated_at) VALUES (?,?,?,?)", (user_id, title, now, now)); cid = cur.lastrowid
+    conn.commit(); conn.close(); return cid
+
+def get_conversations(user_id):
+    conn = get_conn(); cur = conn.cursor()
+    q = "SELECT id, title, updated_at FROM conversations WHERE user_id=%s ORDER BY updated_at DESC LIMIT 50" if IS_POSTGRES else "SELECT id, title, updated_at FROM conversations WHERE user_id=? ORDER BY updated_at DESC LIMIT 50"
+    cur.execute(q, (user_id,)); rows = cur.fetchall(); conn.close(); return rows
+
+def get_chat_messages(conv_id, user_id):
+    conn = get_conn(); cur = conn.cursor()
+    q = "SELECT role, content FROM chat_messages WHERE conversation_id=%s AND user_id=%s ORDER BY id ASC" if IS_POSTGRES else "SELECT role, content FROM chat_messages WHERE conversation_id=? AND user_id=? ORDER BY id ASC"
+    cur.execute(q, (conv_id, user_id)); rows = cur.fetchall(); conn.close(); return rows
+
+def save_chat_message(conv_id, user_id, role, content):
+    conn = get_conn(); cur = conn.cursor(); now = datetime.now().isoformat()
+    q = "INSERT INTO chat_messages (conversation_id, user_id, role, content, timestamp) VALUES (%s,%s,%s,%s,%s)" if IS_POSTGRES else "INSERT INTO chat_messages (conversation_id, user_id, role, content, timestamp) VALUES (?,?,?,?,?)"
+    cur.execute(q, (conv_id, user_id, role, content, now))
+    q2 = "UPDATE conversations SET updated_at=%s WHERE id=%s" if IS_POSTGRES else "UPDATE conversations SET updated_at=? WHERE id=?"
+    cur.execute(q2, (now, conv_id))
+    if role == "user" and len(content) < 50:
+        short = content[:30]
+        q3 = "UPDATE conversations SET title=%s WHERE id=%s AND title=%s" if IS_POSTGRES else "UPDATE conversations SET title=? WHERE id=? AND title=?"
+        cur.execute(q3, (short, conv_id, "چت جدید"))
+    conn.commit(); conn.close()
+
+def delete_conversation(conv_id, user_id):
+    conn = get_conn(); cur = conn.cursor()
+    q = "DELETE FROM chat_messages WHERE conversation_id=%s AND user_id=%s" if IS_POSTGRES else "DELETE FROM chat_messages WHERE conversation_id=? AND user_id=?"
+    cur.execute(q, (conv_id, user_id))
+    q2 = "DELETE FROM conversations WHERE id=%s AND user_id=%s" if IS_POSTGRES else "DELETE FROM conversations WHERE id=? AND user_id=?"
+    cur.execute(q2, (conv_id, user_id))
+    conn.commit(); conn.close()
+
+def extract_image_urls(text: str):
+    found = re.findall(r"https?://\S+|www\.\S+", text)
+    exts = (".png", ".jpg", ".jpeg", ".webp", ".gif")
+    out = []
+    for u in found:
+        low = u.lower()
+        if any(low.endswith(e) for e in exts) or "image" in low or "img" in low or "cleanapis" in low:
+            out.append(u)
+    return out
 
 def is_explicit_image_request(text: str) -> bool:
     low = text.lower()
     triggers = ["عکس بساز", "تصویر بساز", "نقاشی بکش", "طراحی کن", "برام بکش", "برام بساز", "generate image", "create image", "draw "]
     return any(t in low for t in triggers)
 
-def extract_image_urls(text: str):
-    found = re.findall(r"https?://\S+|www\.\S+", text)
-    image_extensions = (".png", ".jpg", ".jpeg", ".webp", ".gif")
-    img_urls = []
-    for u in found:
-        low = u.lower()
-        if any(low.endswith(ext) for ext in image_extensions) or "image" in low or "img" in low or "cleanapis" in low:
-            img_urls.append(u)
-    return img_urls
-
 def get_main_menu(user_id: int):
-    kb = [[InlineKeyboardButton("🎨 ساخت تصویر", callback_data="gen_mode"), InlineKeyboardButton("🛠️ سرویس‌ها و مدل‌ها", callback_data="services_menu")],[InlineKeyboardButton("💎 درباره ربات", callback_data="about")]]
+    kb = []
+    if APP_URL:
+        kb.append([InlineKeyboardButton("🌐 باز کردن اپ چت ✨", web_app=WebAppInfo(url=f"{APP_URL}/miniapp/"))])
+    kb.append([InlineKeyboardButton("🎨 ساخت تصویر", callback_data="gen_mode"), InlineKeyboardButton("🛠️ مدل‌ها", callback_data="services_menu")])
+    kb.append([InlineKeyboardButton("💎 درباره ربات", callback_data="about")])
     if is_admin(user_id):
         kb.append([InlineKeyboardButton("👑 پنل مدیریت", callback_data="admin_panel")])
     return InlineKeyboardMarkup(kb)
@@ -168,12 +186,11 @@ def get_admin_menu():
 
 async def notify_admins(context, user, prompt, answer):
     try:
-        display_username = user.username if user.username else "ندارد"
-        answer_str = str(answer)[:1000]
-        txt = f"🚨 گزارش:\n👤 {user.first_name} (@{display_username} | `{user.id}`)\n📌 درخواست:\n{prompt}\n\n🤖 پاسخ:\n{answer_str}"
+        disp = user.username if user.username else "ندارد"
+        ans = str(answer)[:1000]
+        txt = f"🚨 گزارش:\n👤 {user.first_name} (@{disp} | `{user.id}`)\n📌 درخواست:\n{prompt}\n\n🤖 پاسخ:\n{ans}"
         await context.bot.send_message(chat_id=OWNER_ID, text=txt, parse_mode="Markdown")
-    except Exception as e:
-        logger.error(f"notify failed: {e}")
+    except Exception as e: logger.error(f"notify failed: {e}")
 
 async def send_image_url_as_photo(update: Update, url: str):
     try:
@@ -182,55 +199,28 @@ async def send_image_url_as_photo(update: Update, url: str):
             if r.status_code == 200:
                 await update.message.reply_photo(photo=r.content, caption="🖼️ تصویر ساخته شد ✅✨💎")
                 return
-    except Exception as e:
-        logger.error(f"fetch img failed: {e}")
+    except Exception as e: logger.error(f"fetch img failed: {e}")
     await update.message.reply_text(f"🖼️ لینک تصویر:\n{url}")
 
-# ----------------- سرور سلامت بدون کرش -----------------
-class HealthHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-type", "text/plain; charset=utf-8")
-        self.end_headers()
-        self.wfile.write("Bot is running smoothly! 🚀✨💎".encode())
-    def log_message(self, format, *args):
-        return
-
-def start_health_server():
-    port = int(os.environ.get("PORT", 8080))
-    server = HTTPServer(("0.0.0.0", port), HealthHandler)
-    logger.info(f"Health server started on port {port}")
-    server.serve_forever()
-
-# ----------------- هندلرها -----------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_user(update.effective_user)
     context.user_data.setdefault("model", DEFAULT_MODEL)
     await update.message.reply_text(f"سلام {update.effective_user.first_name} عزیز! 🌸✨\nبه ربات هوش مصنوعی خوش آمدید 🤖💎", reply_markup=get_main_menu(update.effective_user.id))
 
 async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        await update.message.reply_text("⛔ دسترسی ندارید!")
-        return
+    if not is_admin(update.effective_user.id): await update.message.reply_text("⛔ دسترسی ندارید!"); return
     await update.message.reply_text("👑 پنل مدیریت:", reply_markup=get_admin_menu())
 
 async def image_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = " ".join(context.args) if context.args else ""
-    if not prompt:
-        await update.message.reply_text("🎨 پرامپت رو بعد از دستور بنویس:\nمثال: /image a cute cat in space")
-        return
+    if not prompt: await update.message.reply_text("🎨 پرامپت رو بعد از دستور بنویس:\nمثال: /image a cute cat in space"); return
     await handle_image_prompt(update, context, prompt)
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user = query.from_user
-    data = query.data
+    query = update.callback_query; await query.answer(); user = query.from_user; data = query.data
     try:
-        if data == "main_menu":
-            await query.edit_message_text("🏠 منوی اصلی:", reply_markup=get_main_menu(user.id))
-        elif data == "services_menu":
-            await query.edit_message_text("🛠️ مدل را انتخاب کنید:", reply_markup=get_services_menu(context.user_data.get("model", DEFAULT_MODEL)))
+        if data == "main_menu": await query.edit_message_text("🏠 منوی اصلی:", reply_markup=get_main_menu(user.id))
+        elif data == "services_menu": await query.edit_message_text("🛠️ مدل را انتخاب کنید:", reply_markup=get_services_menu(context.user_data.get("model", DEFAULT_MODEL)))
         elif data == "gen_mode":
             context.user_data["awaiting_image"] = True
             await query.edit_message_text("🎨 پرامپت تصویر رو بفرست:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]]))
@@ -239,44 +229,34 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if m in MODELS_WITH_EMOJI:
                 context.user_data["model"] = m
                 await query.edit_message_text(f"✅ مدل شد: {m} {MODELS_WITH_EMOJI[m]}", reply_markup=get_main_menu(user.id))
-        elif data == "about":
-            await query.edit_message_text("💎 ربات هوش مصنوعی پیشرفته\nقدرت گرفته توسط DEX 🚀✨", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]]))
-        elif data == "admin_panel" and is_admin(user.id):
-            await query.edit_message_text("👑 پنل مدیریت:", reply_markup=get_admin_menu())
+        elif data == "about": await query.edit_message_text("💎 ربات هوش مصنوعی پیشرفته\nقدرت گرفته توسط DEX 🚀✨", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]]))
+        elif data == "admin_panel" and is_admin(user.id): await query.edit_message_text("👑 پنل مدیریت:", reply_markup=get_admin_menu())
         elif data == "admin_stats" and is_admin(user.id):
-            uc, mc = get_stats()
-            await query.edit_message_text(f"📊 آمار:\n👥 کاربران: {uc}\n💬 پیام‌ها: {mc}", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]]))
+            uc, mc = get_stats(); await query.edit_message_text(f"📊 آمار:\n👥 کاربران: {uc}\n💬 پیام‌ها: {mc}", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]]))
         elif data == "admin_users" and is_admin(user.id):
-            users = get_all_users()
-            kb = []
+            users = get_all_users(); kb = []
             for uid, uname, fname, _ in users[:20]:
-                display = fname or uname or str(uid)
-                kb.append([InlineKeyboardButton(f"👤 {display} ({uid})", callback_data=f"admin_view_{uid}")])
+                disp = fname or uname or str(uid)
+                kb.append([InlineKeyboardButton(f"👤 {disp} ({uid})", callback_data=f"admin_view_{uid}")])
             kb.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")])
             await query.edit_message_text("👥 کاربران:", reply_markup=InlineKeyboardMarkup(kb))
         elif data == "admin_recent" and is_admin(user.id):
-            recent = get_last_messages(10)
-            lines = []
+            recent = get_last_messages(10); lines = []
             for uid, uname, role, content, ts in recent:
                 disp = uname if uname else "ندارد"
-                snippet = content[:100]
-                lines.append(f"▪️ [{uid}|@{disp}] ({role}): {snippet}\n-----")
+                lines.append(f"▪️ [{uid}|@{disp}] ({role}): {content[:100]}\n-----")
             text = "💬 آخرین پیام‌ها:\n\n" + "\n".join(lines)
             await query.edit_message_text(text[:4000], reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]]))
         elif data.startswith("admin_view_") and is_admin(user.id):
-            tid = int(data.split("_")[2])
-            logs = get_user_logs(tid, 15)
-            parts = []
-            for r, c, ts in logs:
-                parts.append(f"🔹 {r}: {c[:150]}")
-            text = f"📜 تاریخچه `{tid}`:\n\n" + "\n".join(parts)
+            tid = int(data.split("_")[2]); logs = get_user_logs(tid, 15); parts = []
+            for r, c, ts in logs: parts.append(f"🔹 {r}: {c[:150]}")
+            tid_str = str(tid)
+            text = f"📜 تاریخچه `{tid_str}`:\n\n" + "\n".join(parts)
             await query.edit_message_text(text[:4000], reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 لیست ↩️", callback_data="admin_users")]]))
-    except Exception as e:
-        logger.error(f"button error: {e}", exc_info=True)
+    except Exception as e: logger.error(f"button error: {e}", exc_info=True)
 
 async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE, prompt: str):
-    save_user(update.effective_user)
-    save_message(update.effective_user.id, "user", f"[IMAGE] {prompt}")
+    save_user(update.effective_user); save_message(update.effective_user.id, "user", f"[IMAGE] {prompt}")
     status = await update.message.reply_text("⏳ در حال ساخت تصویر... ✨💎")
     answer = None
     for attempt in range(1, 4):
@@ -284,59 +264,27 @@ async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
             async with httpx.AsyncClient(timeout=90.0) as client:
                 payload = {"model": context.user_data.get("model", DEFAULT_MODEL), "messages": [{"role": "system", "content": f"You are an advanced AI assistant created by DEX. You are an image generator. {BEAUTIFY_INSTRUCTION}"}, {"role": "user", "content": f"این پرامپت را به تصویر تبدیل کن: {prompt}"}]}
                 r = await client.post(f"{CLEANAPIS_BASE_URL}/v1/chat/completions", headers={"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"}, json=payload)
-                if r.status_code in [502, 503, 504, 520, 522, 524]:
-                    raise httpx.HTTPStatusError(f"Server error {r.status_code}", request=r.request, response=r)
-                r.raise_for_status()
-                answer = r.json()["choices"][0]["message"]["content"]
-                break
+                if r.status_code in [502,503,504,520,522,524]: raise httpx.HTTPStatusError(f"Server error {r.status_code}", request=r.request, response=r)
+                r.raise_for_status(); answer = r.json()["choices"][0]["message"]["content"]; break
         except Exception as e:
             logger.warning(f"Image attempt {attempt} failed: {e}")
-            if attempt < 3:
-                await asyncio.sleep(3)
-            else:
-                await status.delete()
-                await update.message.reply_text(f"❌ خطا در ساخت تصویر: {str(e)[:200]} 💎")
-                return
+            if attempt < 3: await asyncio.sleep(3)
+            else: await status.delete(); await update.message.reply_text(f"❌ خطا در ساخت تصویر: {str(e)[:200]} 💎"); return
     if answer:
-        urls = extract_image_urls(answer)
-        b64 = re.search(r"data:image/[^;]+;base64,([A-Za-z0-9+/=]+)", answer)
+        urls = extract_image_urls(answer); b64 = re.search(r"data:image/[^;]+;base64,([A-Za-z0-9+/=]+)", answer)
         if b64:
             try:
-                img = base64.b64decode(b64.group(1))
-                save_message(update.effective_user.id, "assistant", "[IMAGE_SENT]")
-                await notify_admins(context, update.effective_user, prompt, "[عکس]")
-                await status.delete()
-                await update.message.reply_photo(photo=img, caption="🖼️ تصویر ساخته شد ✅✨💎")
-                return
-            except Exception:
-                pass
-        if urls:
-            save_message(update.effective_user.id, "assistant", urls[0])
-            await notify_admins(context, update.effective_user, prompt, urls[0])
-            await status.delete()
-        else:
-            await status.delete()
-            await update.message.reply_text(f"🖼️ پاسخ مدل:\n{answer}")
-            return
-        for url in urls:
-            await send_image_url_as_photo(update, url)
+                img = base64.b64decode(b64.group(1)); save_message(update.effective_user.id, "assistant", "[IMAGE_SENT]"); await notify_admins(context, update.effective_user, prompt, "[عکس]"); await status.delete(); await update.message.reply_photo(photo=img, caption="🖼️ تصویر ساخته شد ✅✨💎"); return
+            except: pass
+        if urls: save_message(update.effective_user.id, "assistant", urls[0]); await notify_admins(context, update.effective_user, prompt, urls[0]); await status.delete()
+        else: await status.delete(); await update.message.reply_text(f"🖼️ پاسخ مدل:\n{answer}"); return
+        for url in urls: await send_image_url_as_photo(update, url)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.text:
-        return
-    text = update.message.text.strip()
-    user = update.effective_user
-    save_user(user)
-
-    if context.user_data.get("awaiting_image"):
-        context.user_data["awaiting_image"] = False
-        await handle_image_prompt(update, context, text)
-        return
-
-    if is_explicit_image_request(text):
-        await handle_image_prompt(update, context, text)
-        return
-
+    if not update.message or not update.message.text: return
+    text = update.message.text.strip(); user = update.effective_user; save_user(user)
+    if context.user_data.get("awaiting_image"): context.user_data["awaiting_image"] = False; await handle_image_prompt(update, context, text); return
+    if is_explicit_image_request(text): await handle_image_prompt(update, context, text); return
     save_message(user.id, "user", text)
     status = await update.message.reply_text("⏳ در حال پردازش... ✨💎")
     answer = None
@@ -345,54 +293,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             async with httpx.AsyncClient(timeout=60.0) as client:
                 payload = {"model": context.user_data.get("model", DEFAULT_MODEL), "messages": [{"role": "system", "content": f"You are an advanced AI assistant created by DEX. If anyone asks who created you, say DEX. {BEAUTIFY_INSTRUCTION}"}, {"role": "user", "content": text}]}
                 r = await client.post(f"{CLEANAPIS_BASE_URL}/v1/chat/completions", headers={"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"}, json=payload)
-                if r.status_code in [502, 503, 504, 520, 522, 524]:
-                    raise httpx.HTTPStatusError(f"Server error {r.status_code}", request=r.request, response=r)
-                r.raise_for_status()
-                answer = r.json()["choices"][0]["message"]["content"]
-                break
+                if r.status_code in [502,503,504,520,522,524]: raise httpx.HTTPStatusError(f"Server error {r.status_code}", request=r.request, response=r)
+                r.raise_for_status(); answer = r.json()["choices"][0]["message"]["content"]; break
         except Exception as e:
             logger.warning(f"Attempt {attempt} failed: {e}")
-            if attempt < 3:
-                await asyncio.sleep(2)
-            else:
-                await status.delete()
-                await update.message.reply_text("❌ سرور شلوغه، لطفاً دوباره تلاش کن 💎")
-                return
-    if answer:
-        save_message(user.id, "assistant", answer)
-        await notify_admins(context, user, text, answer)
-        await status.delete()
-        await update.message.reply_text(answer)
+            if attempt < 3: await asyncio.sleep(2)
+            else: await status.delete(); await update.message.reply_text("❌ سرور شلوغه، لطفاً دوباره تلاش کن 💎"); return
+    if answer: save_message(user.id, "assistant", answer); await notify_admins(context, user, text, answer); await status.delete(); await update.message.reply_text(answer)
 
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-    logger.error("Exception:", exc_info=context.error)
-
-def main():
-    if not TELEGRAM_BOT_TOKEN or TELEGRAM_BOT_TOKEN == "YOUR_BOT_TOKEN":
-        logger.error("❌ TELEGRAM_BOT_TOKEN ست نشده! Variables رو چک کن")
-        threading.Thread(target=start_health_server, daemon=True).start()
-        while True:
-            time.sleep(3600)
-        return
-    try:
-        init_db()
-    except Exception as e:
-        logger.error(f"DB init fallback to SQLite: {e}")
-        global DATABASE_URL, IS_POSTGRES
-        DATABASE_URL = None
-        IS_POSTGRES = False
-        init_db()
-    threading.Thread(target=start_health_server, daemon=True).start()
-    application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
-    application.add_error_handler(error_handler)
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("admin", admin_command))
-    application.add_handler(CommandHandler("image", image_command))
-    application.add_handler(CommandHandler("img", image_command))
-    application.add_handler(CallbackQueryHandler(button_handler))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    logger.info("Bot is starting... 🚀 Polling...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True, close_loop=False)
-
-if __name__ == "__main__":
-    main()
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE): logger.e
