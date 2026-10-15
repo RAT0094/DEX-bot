@@ -134,7 +134,6 @@ def is_image_request(text: str) -> bool:
     return any(kw in text.lower() for kw in IMAGE_KEYWORDS)
 
 def extract_image_urls(text: str):
-    # فیکس شده: از " استفاده شد تا ارور \\' نده
     found = re.findall(r"https?://\S+|www\.\S+", text)
     image_extensions = (".png", ".jpg", ".jpeg", ".webp", ".gif")
     img_urls = []
@@ -151,7 +150,11 @@ def get_main_menu(user_id: int):
     return InlineKeyboardMarkup(kb)
 
 def get_services_menu(current_model: str):
-    rows = [[InlineKeyboardButton(f"{emoji} {\'✅ \'+k if k==current_model else k}", callback_data=f"set_{k}")] for k, emoji in MODELS_WITH_EMOJI.items()]
+    rows = []
+    for k, emoji in MODELS_WITH_EMOJI.items():
+        prefix = "✅ " if k == current_model else ""
+        label = f"{emoji} {prefix}{k}"
+        rows.append([InlineKeyboardButton(label, callback_data=f"set_{k}")])
     rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")])
     return InlineKeyboardMarkup(rows)
 
