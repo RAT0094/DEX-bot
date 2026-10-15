@@ -163,7 +163,9 @@ def get_admin_menu():
 
 async def notify_admins(context, user, prompt, answer):
     try:
-        txt = f"🚨 گزارش:\n👤 {user.first_name} (@{user.username or \'ندارد\'} | `{user.id}`)\n📌 درخواست:\n{prompt}\n\n🤖 پاسخ:\n{str(answer)[:1000]}"
+        display_username = user.username if user.username else "ندارد"
+        answer_str = str(answer)[:1000]
+        txt = f"🚨 گزارش:\n👤 {user.first_name} (@{display_username} | `{user.id}`)\n📌 درخواست:\n{prompt}\n\n🤖 پاسخ:\n{answer_str}"
         await context.bot.send_message(chat_id=OWNER_ID, text=txt, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"notify failed: {e}")
@@ -234,17 +236,28 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(f"📊 آمار:\n👥 کاربران: {uc}\n💬 پیام‌ها: {mc}", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]]))
         elif data == "admin_users" and is_admin(user.id):
             users = get_all_users()
-            kb = [[InlineKeyboardButton(f"👤 {fname or uname or uid} ({uid})", callback_data=f"admin_view_{uid}")] for uid, uname, fname, _ in users[:20]]
+            kb = []
+            for uid, uname, fname, _ in users[:20]:
+                display = fname or uname or str(uid)
+                kb.append([InlineKeyboardButton(f"👤 {display} ({uid})", callback_data=f"admin_view_{uid}")])
             kb.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")])
             await query.edit_message_text("👥 کاربران:", reply_markup=InlineKeyboardMarkup(kb))
         elif data == "admin_recent" and is_admin(user.id):
             recent = get_last_messages(10)
-            text = "💬 آخرین پیام‌ها:\n\n" + "\n".join([f"▪️ [{uid}|@{uname or \'ندارد\'}] ({role}): {content[:100]}\n-----" for uid, uname, role, content, ts in recent])
+            lines = []
+            for uid, uname, role, content, ts in recent:
+                disp = uname if uname else "ندارد"
+                snippet = content[:100]
+                lines.append(f"▪️ [{uid}|@{disp}] ({role}): {snippet}\n-----")
+            text = "💬 آخرین پیام‌ها:\n\n" + "\n".join(lines)
             await query.edit_message_text(text[:4000], reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]]))
         elif data.startswith("admin_view_") and is_admin(user.id):
             tid = int(data.split("_")[2])
             logs = get_user_logs(tid, 15)
-            text = f"📜 تاریخچه `{tid}`:\n\n" + "\n".join([f"🔹 **{r}**: {c[:150]}" for r, c, ts in logs])
+            parts = []
+            for r, c, ts in logs:
+                parts.append(f"🔹 {r}: {c[:150]}")
+            text = f"📜 تاریخچه `{tid}`:\n\n" + "\n".join(parts)
             await query.edit_message_text(text[:4000], reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 لیست ↩️", callback_data="admin_users")]]))
     except Exception as e:
         logger.error(f"button error: {e}", exc_info=True)
