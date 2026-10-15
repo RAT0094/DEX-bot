@@ -312,23 +312,26 @@ async def handle_image_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
-    text = update.message.text
+    text = update.message.text.strip()
     user = update.effective_user
     save_user(user)
+
+    # 1. حالت ساخت تصویر فقط با دکمه
     if context.user_data.get("awaiting_image"):
         context.user_data["awaiting_image"] = False
         await handle_image_prompt(update, context, text)
         return
-    if is_image_request(text):
-        prompt = text
-        for k in IMAGE_KEYWORDS:
-            if k.lower() in text.lower():
-                parts = re.split(re.escape(k), text, flags=re.IGNORECASE)
-                if len(parts) > 1 and parts[-1].strip():
-                    prompt = parts[-1].strip()
-                break
+
+    # 2. دستور مستقیم برای تصویر
+    if text.startswith("/image") or text.startswith("/img"):
+        prompt = text.replace("/image", "", 1).replace("/img", "", 1).strip()
+        if not prompt:
+            await update.message.reply_text("🎨 پرامپت رو بعد از دستور بنویس:\nمثال: `/image a cute cat in space`")
+            return
         await handle_image_prompt(update, context, prompt)
         return
+
+    # 3. بقیه پیام ها فقط چت هستند - تشخیص خودکار عکس حذف شد
     save_message(user.id, "user", text)
     status = await update.message.reply_text("⏳ در حال پردازش... ✨💎")
     answer = None
