@@ -399,4 +399,4 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_message(user.id, "user", text)
     status = await update.message.reply_text("⏳ در حال پردازش... ✨💎")
     answer = None
-    for attempt in range(1, 4)
+    for attempt in range(1,4):
