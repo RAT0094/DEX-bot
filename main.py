@@ -7,7 +7,6 @@ import logging
 import os
 import re
 import sqlite3
-import threading
 import time
 from datetime import datetime
 from urllib.parse import parse_qsl, unquote
@@ -729,13 +728,22 @@ async def setup_bot():
         logger.warning("TELEGRAM_BOT_TOKEN is not configured; skipping Telegram bot setup.")
         return None
 
-    application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("admin", admin_command))
-    application.add_handler(CommandHandler("image", image_command))
-    application.add_handler(CallbackQueryHandler(button_handler))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    return application
+    try:
+        application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("admin", admin_command))
+        application.add_handler(CommandHandler("image", image_command))
+        application.add_handler(CallbackQueryHandler(button_handler))
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        return application
+    except Exception as exc:
+        logger.error(
+            "Telegram bot initialization failed. This is usually caused by an incompatible python-telegram-bot version "
+            "with the current Python environment (common on Python 3.13). "
+            "Reinstall with a compatible PTB version or use Python 3.11/3.12. "
+            f"Original error: {exc}"
+        )
+        return None
 
 
 def main():
