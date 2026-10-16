@@ -25,29 +25,27 @@ logger = logging.getLogger(__name__)
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "YOUR_BOT_TOKEN")
 CLEANAPIS_API_KEY = os.getenv("CLEANAPIS_API_KEY", "YOUR_API_KEY")
 CLEANAPIS_BASE_URL = "https://cleanapis.com"
-DEFAULT_MODEL = "gpt-5.6-luna"
 OWNER_ID = 8163337709
 DB_PATH = "bot_memory.db"
 DATABASE_URL = os.getenv("DATABASE_URL")
 APP_URL = os.getenv("APP_URL", os.getenv("RAILWAY_PUBLIC_DOMAIN", ""))
 if APP_URL and not APP_URL.startswith("http"):
     APP_URL = "https://" + APP_URL
-
 if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 IS_POSTGRES = bool(DATABASE_URL and "postgresql" in DATABASE_URL)
 
 BEAUTIFY_INSTRUCTION = "پاسخ‌ها را بسیار دقیق، زیبا، ساختاریافته، جذاب و با استفاده از ایموجی‌های مناسب به زبان فارسی روان ارائه بده."
+DEFAULT_MODEL = "gpt-5.6-sol"
 MODELS_WITH_EMOJI = {
-    "gpt-5.6-luna": "🌙💎",
-    "claude-opus-5.5": "🎭✨",
-    "gpt-5.5": "⚡🚀",
-    "gpt-5.5-pro": "🚀👑",
-    "claude-fable-5": "📖💫",
-    "claude-fable-5.1": "✨👑"
+    "gpt-5.6-sol": "☀️",
+    "claude-fable-5.1": "✨",
+    "claude-fable-5": "📖",
+    "gpt-5.5-pro": "🚀",
+    "gpt-5.5": "⚡",
 }
 
-# ----------------- دیتابیس هوشمند -----------------
+# ----------------- دیتابیس -----------------
 def get_conn():
     if IS_POSTGRES:
         import psycopg2
@@ -70,8 +68,7 @@ def init_db():
         cur.execute("CREATE TABLE IF NOT EXISTS chat_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, conversation_id INTEGER, user_id INTEGER, role TEXT, content TEXT, timestamp TEXT)")
     conn.commit()
     conn.close()
-    db_name = "PostgreSQL" if IS_POSTGRES else "SQLite"
-    logger.info(f"✅ Database initialized: {db_name}")
+    logger.info(f"✅ Database initialized: {\'PostgreSQL\' if IS_POSTGRES else \'SQLite\'}")
 
 def save_user(user):
     try:
@@ -147,13 +144,30 @@ def delete_conversation(conv_id, user_id):
     cur.execute(q2, (conv_id, user_id))
     conn.commit(); conn.close()
 
+# ----------------- امنیت مینی اپ -----------------
+def validate_init_data(init_data: str):
+    try:
+        vals = dict(parse_qsl(init_data))
+        hash_val = vals.pop("hash", None)
+        if not hash_val: return None
+        data_check_string = "\n".join(f"{k}={v}" for k,v in sorted(vals.items()))
+        secret_key = hmac.new(b"WebAppData", TELEGRAM_BOT_TOKEN.encode(), hashlib.sha256).digest()
+        h = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+        if h != hash_val: return None
+        if "auth_date" in vals and time.time() - int(vals["auth_date"]) > 86400: return None
+        return json.loads(unquote(vals.get("user", "{}")))
+    except Exception as e:
+        logger.error(f"validate error: {e}")
+        return None
+
+# ----------------- ابزارها -----------------
 def extract_image_urls(text: str):
     found = re.findall(r"https?://\S+|www\.\S+", text)
     exts = (".png", ".jpg", ".jpeg", ".webp", ".gif")
     out = []
     for u in found:
         low = u.lower()
-        if any(low.endswith(e) for e in exts) or "image" in low or "img" in low or "cleanapis" in low:
+        if any(low.endswith(e) for e in exts) or "image" in low or "cleanapis" in low:
             out.append(u)
     return out
 
@@ -202,6 +216,7 @@ async def send_image_url_as_photo(update: Update, url: str):
     except Exception as e: logger.error(f"fetch img failed: {e}")
     await update.message.reply_text(f"🖼️ لینک تصویر:\n{url}")
 
+# ----------------- هندلرهای تلگرام -----------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_user(update.effective_user)
     context.user_data.setdefault("model", DEFAULT_MODEL)
@@ -250,8 +265,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif data.startswith("admin_view_") and is_admin(user.id):
             tid = int(data.split("_")[2]); logs = get_user_logs(tid, 15); parts = []
             for r, c, ts in logs: parts.append(f"🔹 {r}: {c[:150]}")
-            tid_str = str(tid)
-            text = f"📜 تاریخچه `{tid_str}`:\n\n" + "\n".join(parts)
+            text = f"📜 تاریخچه `{tid}`:\n\n" + "\n".join(parts)
             await query.edit_message_text(text[:4000], reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 لیست ↩️", callback_data="admin_users")]]))
     except Exception as e: logger.error(f"button error: {e}", exc_info=True)
 
@@ -293,12 +307,4 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             async with httpx.AsyncClient(timeout=60.0) as client:
                 payload = {"model": context.user_data.get("model", DEFAULT_MODEL), "messages": [{"role": "system", "content": f"You are an advanced AI assistant created by DEX. If anyone asks who created you, say DEX. {BEAUTIFY_INSTRUCTION}"}, {"role": "user", "content": text}]}
                 r = await client.post(f"{CLEANAPIS_BASE_URL}/v1/chat/completions", headers={"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"}, json=payload)
-                if r.status_code in [502,503,504,520,522,524]: raise httpx.HTTPStatusError(f"Server error {r.status_code}", request=r.request, response=r)
-                r.raise_for_status(); answer = r.json()["choices"][0]["message"]["content"]; break
-        except Exception as e:
-            logger.warning(f"Attempt {attempt} failed: {e}")
-            if attempt < 3: await asyncio.sleep(2)
-            else: await status.delete(); await update.message.reply_text("❌ سرور شلوغه، لطفاً دوباره تلاش کن 💎"); return
-    if answer: save_message(user.id, "assistant", answer); await notify_admins(context, user, text, answer); await status.delete(); await update.message.reply_text(answer)
-
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE): logger.e
+                if r
