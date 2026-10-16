@@ -2,100 +2,30 @@
 <html lang="fa" dir="rtl">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>DEX AI - Mini App</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<script src="https://cdn.tailwindcss.com"></script>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.0/marked.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-<link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" rel="stylesheet">
-<style>
-*{font-family: Vazirmatn, sans-serif}
-body{background:#212121}
-::-webkit-scrollbar{width:5px;height:5px}
-::-webkit-scrollbar-thumb{background:#444;border-radius:10px}
-::-webkit-scrollbar-track{background:transparent}
-.prose pre{background:#1a1a1a;border-radius:12px;padding:16px;overflow-x:auto;direction:ltr;text-align:left}
-.prose code{font-family: monospace; font-size:13px}
-.prose p{margin:8px 0; line-height:1.8}
-</style>
+<title>DEX AI</title>
+<link rel="stylesheet" href="style.css">
 </head>
-<body class="text-white h-[100dvh] flex overflow-hidden">
-<!-- Sidebar - مثل کلاد -->
-<div id="sidebar" class="w-[280px] bg-[#171717] flex flex-col p-3 gap-3 shrink-0 max-md:fixed max-md:inset-y-0 max-md:right-0 max-md:z-50 max-md:translate-x-full transition-transform duration-300" >
-  <div class="flex items-center justify-between">
-    <div class="flex items-center gap-2">
-      <div class="w-8 h-8 bg-white text-black rounded-lg flex items-center justify-center font-bold text-sm">DEX</div>
-      <span class="font-bold text-sm">DEX AI</span>
-    </div>
-    <button onclick="toggleSidebar()" class="md:hidden p-2">✕</button>
-  </div>
-
-  <button onclick="newChat()" class="bg-[#2f2f2f] hover:bg-[#3a3a3a] p-3 rounded-xl text-sm flex items-center gap-2 justify-center transition">
-    <span>＋</span> چت جدید
-  </button>
-
-  <select id="modelSelect" class="bg-[#2f2f2f] p-2.5 rounded-xl text-xs outline-none border border-[#3a3a3a]">
-    <option value="gpt-5.6-luna">🌙💎 gpt-5.6-luna</option>
-    <option value="claude-opus-5.5">🎭✨ claude-opus-5.5</option>
-    <option value="gpt-5.5">⚡🚀 gpt-5.5</option>
-    <option value="gpt-5.5-pro">🚀👑 gpt-5.5-pro</option>
-    <option value="claude-fable-5">📖💫 claude-fable-5</option>
-    <option value="claude-fable-5.1">✨👑 claude-fable-5.1</option>
+<body>
+<div id="sidebar">
+  <button id="newChat">+ چت جدید</button>
+  <div id="convList"></div>
+  <select id="modelSelect">
+    <option value="gpt-5.6-sol">☀️ gpt-5.6-sol</option>
+    <option value="claude-fable-5.1">✨ claude-fable-5.1</option>
+    <option value="claude-fable-5">📖 claude-fable-5</option>
+    <option value="gpt-5.5-pro">🚀 gpt-5.5-pro</option>
+    <option value="gpt-5.5">⚡ gpt-5.5</option>
   </select>
-
-  <div class="text-[11px] text-[#888] mt-2">تاریخچه گفتگوها</div>
-  <div id="history" class="flex-1 overflow-y-auto space-y-1 -mx-1 px-1">
-    <div class="text-xs text-[#666] text-center py-8">هنوز چتی نداری</div>
-  </div>
-
-  <div class="text-[10px] text-[#666] text-center pt-2 border-t border-[#2a2a2a]">قدرت گرفته توسط DEX 🚀</div>
 </div>
-
-<!-- Main -->
-<div class="flex-1 flex flex-col min-w-0 bg-[#212121]">
-  <!-- Header -->
-  <div class="h-[52px] border-b border-[#2f2f2f] flex items-center justify-between px-4 shrink-0">
-    <button onclick="toggleSidebar()" class="md:hidden p-2 bg-[#2f2f2f] rounded-lg">☰</button>
-    <div class="font-bold text-sm">DEX AI ✨</div>
-    <div class="flex items-center gap-2">
-      <button onclick="newChat()" class="hidden md:flex text-xs bg-[#2f2f2f] px-3 py-1.5 rounded-lg">چت جدید</button>
-      <button onclick="clearCurrentChat()" class="text-xs text-[#888] hover:text-white">پاک کردن</button>
-    </div>
-  </div>
-
-  <!-- Messages -->
-  <div id="messages" class="flex-1 overflow-y-auto">
-    <div id="welcome" class="h-full flex flex-col items-center justify-center p-6 text-center gap-4">
-      <div class="w-16 h-16 bg-[#2f2f2f] rounded-2xl flex items-center justify-center text-2xl">✨</div>
-      <h1 class="text-2xl font-bold">سلام! چطور کمکت کنم؟</h1>
-      <p class="text-sm text-[#888] max-w-md">هر سوالی داری بپرس، یا درخواست ساخت تصویر بده. مثل Claude میتونی چت کنی و تاریخچه ات ذخیره میشه.</p>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-2 w-full max-w-xl mt-4">
-        <button onclick="quickPrompt(\'یه داستان کوتاه بنویس\')" class="bg-[#2f2f2f] p-3 rounded-xl text-xs text-right hover:bg-[#3a3a3a]">📖 یه داستان کوتاه بنویس</button>
-        <button onclick="quickPrompt(\'عکس بساز یک گربه فضانورد\')" class="bg-[#2f2f2f] p-3 rounded-xl text-xs text-right hover:bg-[#3a3a3a]">🎨 عکس بساز یک گربه فضانورد</button>
-        <button onclick="quickPrompt(\'کد پایتون برای ربات تلگرام بده\')" class="bg-[#2f2f2f] p-3 rounded-xl text-xs text-right hover:bg-[#3a3a3a]">💻 کد پایتون ربات تلگرام</button>
-        <button onclick="quickPrompt(\'بهترین روش یادگیری زبان چیه؟\')" class="bg-[#2f2f2f] p-3 rounded-xl text-xs text-right hover:bg-[#3a3a3a]">💡 بهترین روش یادگیری زبان</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Typing -->
-  <div id="typing" class="hidden px-6 py-2 text-xs text-[#888]">DEX در حال تایپ... ✨</div>
-
-  <!-- Input -->
-  <div class="p-3 md:p-4 shrink-0">
-    <div class="max-w-3xl mx-auto bg-[#2f2f2f] rounded-[24px] flex items-end gap-2 p-2 border border-[#3a3a3a] focus-within:border-[#555] transition">
-      <textarea id="input" rows="1" placeholder="پیام خود را بنویسید..." class="flex-1 bg-transparent outline-none resize-none max-h-[120px] py-3 px-3 text-sm placeholder:text-[#777]" onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
-      <button onclick="send()" id="sendBtn" class="w-9 h-9 bg-white text-black rounded-full flex items-center justify-center shrink-0 hover:bg-[#eee] transition disabled:opacity-40">↑</button>
-    </div>
-    <div class="text-[10px] text-[#666] text-center mt-2">DEX AI میتواند اشتباه کند. لطفا پاسخ ها را بررسی کنید.</div>
+<div id="main">
+  <div id="chat"></div>
+  <div id="inputBar">
+    <input id="input" placeholder="پیام خود را بنویسید..." />
+    <button id="send">ارسال</button>
   </div>
 </div>
-
-<!-- Overlay -->
-<div id="overlay" onclick="toggleSidebar()" class="hidden max-md:block fixed inset-0 bg-black/50 z-40 hidden"></div>
-
 <script src="app.js"></script>
 </body>
-                                                  </html>
+</html>
