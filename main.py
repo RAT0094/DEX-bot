@@ -67,9 +67,8 @@ def init_db():
         cur.execute("CREATE TABLE IF NOT EXISTS conversations (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, title TEXT, created_at TEXT, updated_at TEXT)")
         cur.execute("CREATE TABLE IF NOT EXISTS chat_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, conversation_id INTEGER, user_id INTEGER, role TEXT, content TEXT, timestamp TEXT)")
     conn.commit()
-    conn.close()
+    conn.close()    
     logger.info(f"✅ Database initialized: {\'PostgreSQL\' if IS_POSTGRES else \'SQLite\'}")
-
 def save_user(user):
     try:
         conn = get_conn(); cur = conn.cursor(); now = datetime.now().isoformat()
