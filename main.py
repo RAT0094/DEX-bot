@@ -67,8 +67,10 @@ def init_db():
         cur.execute("CREATE TABLE IF NOT EXISTS conversations (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, title TEXT, created_at TEXT, updated_at TEXT)")
         cur.execute("CREATE TABLE IF NOT EXISTS chat_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, conversation_id INTEGER, user_id INTEGER, role TEXT, content TEXT, timestamp TEXT)")
     conn.commit()
-    conn.close()    
-    logger.info(f"✅ Database initialized: {\'PostgreSQL\' if IS_POSTGRES else \'SQLite\'}")
+    conn.close()
+    db_name = "PostgreSQL" if IS_POSTGRES else "SQLite"
+    logger.info(f"✅ Database initialized: {db_name}")
+
 def save_user(user):
     try:
         conn = get_conn(); cur = conn.cursor(); now = datetime.now().isoformat()
@@ -306,4 +308,4 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             async with httpx.AsyncClient(timeout=60.0) as client:
                 payload = {"model": context.user_data.get("model", DEFAULT_MODEL), "messages": [{"role": "system", "content": f"You are an advanced AI assistant created by DEX. If anyone asks who created you, say DEX. {BEAUTIFY_INSTRUCTION}"}, {"role": "user", "content": text}]}
                 r = await client.post(f"{CLEANAPIS_BASE_URL}/v1/chat/completions", headers={"Authorization": f"Bearer {CLEANAPIS_API_KEY}", "Content-Type": "application/json"}, json=payload)
-                if r
+  
